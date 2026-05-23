@@ -9,6 +9,7 @@
   import { WebGL2MosaicRenderer } from '../../render/webgl/gl-context';
   import { applyMosaicCanvas2D } from '../../render/canvas/canvas2d-fallback';
   import { logger } from '../../utils/logger';
+  import type { InterpolatedRect } from '../../engine/types';
 
   export let videoFile: File | null = null;
 
@@ -20,32 +21,40 @@
   let raf = 0;
   let videoObjectUrl = '';
 
-  // Native dimensions from the video element (set on loadedmetadata)
   let nativeWidth = 0;
   let nativeHeight = 0;
-
-  // Display dimensions (CSS pixels, aspect-fit inside container)
   let displayWidth = 0;
   let displayHeight = 0;
 
-  let isDraggingRect = false;
+  // Rect drawing state
   let isDrawingNew = false;
   let dragStartX = 0;
   let dragStartY = 0;
   let dragCurrentX = 0;
   let dragCurrentY = 0;
+
+  // Rect moving state
+  let isDraggingRect = false;
   let dragTrackId = '';
-  let dragInitialRect = { x: 0, y: 0, width: 0, height: 0 };
+  let dragInitialRect = { x: 0, y: 0, width: 0, height: 0, rotation: 0 };
+  let dragMoveStartX = 0;
+  let dragMoveStartY = 0;
+
+  // Corner handle resize state
+  const HANDLE_RADIUS = 7;
+  let isDraggingHandle = false;
+  let dragHandleType: 'tl' | 'tr' | 'bl' | 'br' = 'tl';
+  let handleTrackId = '';
+  let handleInitialRect = { x: 0, y: 0, width: 0, height: 0, rotation: 0 };
+
   let glReady = false;
-  let glFailed = false;          // true when WebGL2 is unavailable → use Canvas2D fallback
-  let fallbackCanvas: HTMLCanvasElement;  // Canvas2D fallback overlay
+  let glFailed = false;
+  let fallbackCanvas: HTMLCanvasElement;
 
   $: tracks = $tracksStore;
   $: selTrackId = $selectedTrackId;
   $: mode = $drawingMode;
 
-  // React to videoFile prop changes (set by D&D or file input in this component,
-  // or passed down from App)
   $: if (videoFile) loadVideo(videoFile);
 
   async function loadVideo(file: File) {
@@ -53,19 +62,15 @@
     cancelAnimationFrame(raf);
     glRenderer?.dispose();
     glRenderer = null;
-
     if (videoObjectUrl) URL.revokeObjectURL(videoObjectUrl);
     videoObjectUrl = URL.createObjectURL(file);
     videoEl.src = videoObjectUrl;
     videoEl.load();
   }
 
-  // Called by <video on:loadedmetadata>
   function onVideoMetadataLoaded() {
     nativeWidth = videoEl.videoWidth || 1280;
     nativeHeight = videoEl.videoHeight || 720;
-
-    // Register metadata in project store so other components can read it
     if (videoFile) {
       projectStore.initProject(videoFile.name, {
         width: nativeWidth,
@@ -75,14 +80,11 @@
         hasAudio: false,
       });
     }
-
     fps.set(30);
     duration.set(videoEl.duration);
     videoElement.set(videoEl);
-
     updateDisplaySize();
     initGL();
-
     logger.info('video:metadata-loaded', { nativeWidth, nativeHeight, duration: videoEl.duration });
   }
 
@@ -98,7 +100,6 @@
       displayHeight = maxH;
       displayWidth = maxH * ratio;
     }
-    logger.debug('viewport:display-size', { displayWidth, displayHeight });
   }
 
   async function initGL() {
@@ -110,7 +111,6 @@
       glRenderer = new WebGL2MosaicRenderer(glCanvas);
       await glRenderer.init(nativeWidth, nativeHeight);
       glReady = true;
-      logger.info('viewport:gl-ready', { nativeWidth, nativeHeight });
     } catch (e) {
       logger.warn('viewport:gl-init-failed — using Canvas2D fallback', e);
       glReady = false;
@@ -122,19 +122,14 @@
   function startRenderLoop() {
     cancelAnimationFrame(raf);
     const render = () => {
-      // BUG-A6 fix: only upload to GPU once the video has actual pixel data
-      if (videoEl && nativeWidth > 0 && videoEl.readyState >= 2 /* HAVE_CURRENT_DATA */) {
+      if (videoEl && nativeWidth > 0 && videoEl.readyState >= 2) {
         const t = videoEl.currentTime;
         currentTime.set(t);
-
         if (glReady && glRenderer) {
-          // WebGL path
           glRenderer.renderFrame(videoEl, tracks, t);
         } else if (glFailed) {
-          // BUG-A5 fix: Canvas2D fallback when WebGL is unavailable
           renderFallback(t);
         }
-
         drawOverlay(t);
       }
       raf = requestAnimationFrame(render);
@@ -151,12 +146,83 @@
     ctx.drawImage(videoEl, 0, 0, displayWidth, displayHeight);
     applyMosaicCanvas2D(
       ctx as unknown as OffscreenCanvasRenderingContext2D,
-      tracks,
-      time,
-      nativeWidth,
-      nativeHeight,
+      tracks, time, nativeWidth, nativeHeight,
     );
   }
+
+  // ── helpers ────────────────────────────────────────────────────────────────
+
+  function getCorners(cx: number, cy: number, hw: number, hh: number, rot: number) {
+    const c = Math.cos(rot), s = Math.sin(rot);
+    return {
+      tl: { x: cx + (-hw) * c - (-hh) * s, y: cy + (-hw) * s + (-hh) * c },
+      tr: { x: cx +   hw  * c - (-hh) * s, y: cy +   hw  * s + (-hh) * c },
+      bl: { x: cx + (-hw) * c -   hh  * s, y: cy + (-hw) * s +   hh  * c },
+      br: { x: cx +   hw  * c -   hh  * s, y: cy +   hw  * s +   hh  * c },
+    };
+  }
+
+  function hitTestHandle(
+    pos: { x: number; y: number },
+    rect: InterpolatedRect,
+    sX: number,
+    sY: number,
+  ): 'tl' | 'tr' | 'bl' | 'br' | null {
+    const dx = rect.x * sX, dy = rect.y * sY;
+    const dw = rect.width * sX, dh = rect.height * sY;
+    const rot = (rect.rotation ?? 0) * Math.PI / 180;
+    const corners = getCorners(dx + dw / 2, dy + dh / 2, dw / 2, dh / 2, rot);
+    for (const [type, corner] of Object.entries(corners)) {
+      if (Math.hypot(pos.x - corner.x, pos.y - corner.y) <= HANDLE_RADIUS + 4) {
+        return type as 'tl' | 'tr' | 'bl' | 'br';
+      }
+    }
+    return null;
+  }
+
+  function computeHandleDragRect(
+    mx: number,
+    my: number,
+    handleType: 'tl' | 'tr' | 'bl' | 'br',
+    initRect: { x: number; y: number; width: number; height: number; rotation: number },
+  ) {
+    const { rotation } = initRect;
+    const θ = rotation * Math.PI / 180;
+    const cosθ = Math.cos(θ), sinθ = Math.sin(θ);
+    const cx = initRect.x + initRect.width / 2;
+    const cy = initRect.y + initRect.height / 2;
+    const hw = initRect.width / 2;
+    const hh = initRect.height / 2;
+
+    // Local coords of the OPPOSITE corner
+    const oppLocal = {
+      tl: { x:  hw, y:  hh },
+      tr: { x: -hw, y:  hh },
+      bl: { x:  hw, y: -hh },
+      br: { x: -hw, y: -hh },
+    }[handleType];
+
+    // Opposite corner in native coords (stays fixed during drag)
+    const oppX = cx + oppLocal.x * cosθ - oppLocal.y * sinθ;
+    const oppY = cy + oppLocal.x * sinθ + oppLocal.y * cosθ;
+
+    // New center
+    const newCx = (mx + oppX) / 2;
+    const newCy = (my + oppY) / 2;
+
+    // Diagonal from opposite corner to new handle position, projected into local frame
+    const diagX = mx - oppX;
+    const diagY = my - oppY;
+    const localDX = diagX * cosθ + diagY * sinθ;
+    const localDY = -diagX * sinθ + diagY * cosθ;
+
+    const newHW = Math.max(Math.abs(localDX) / 2, 5);
+    const newHH = Math.max(Math.abs(localDY) / 2, 5);
+
+    return { x: newCx - newHW, y: newCy - newHH, width: newHW * 2, height: newHH * 2, rotation };
+  }
+
+  // ── overlay drawing ────────────────────────────────────────────────────────
 
   function drawOverlay(time: number) {
     if (!overlayCanvas || displayWidth === 0 || displayHeight === 0) return;
@@ -170,19 +236,42 @@
       if (!track.enabled) continue;
       const rect = interpolateKeyframes(track.keyframes, time);
       if (!rect) continue;
+
       const dx = rect.x * scaleX;
       const dy = rect.y * scaleY;
       const dw = rect.width * scaleX;
       const dh = rect.height * scaleY;
-      ctx.strokeStyle = track.id === selTrackId ? '#00ff88' : '#ffffff';
+      const rot = (rect.rotation ?? 0) * Math.PI / 180;
+      const isSel = track.id === selTrackId;
+
+      ctx.save();
+      ctx.translate(dx + dw / 2, dy + dh / 2);
+      ctx.rotate(rot);
+      ctx.strokeStyle = isSel ? '#00ff88' : '#ffffff';
       ctx.lineWidth = 2;
-      ctx.setLineDash(track.id === selTrackId ? [] : [4, 4]);
-      ctx.strokeRect(dx, dy, dw, dh);
+      ctx.setLineDash(isSel ? [] : [4, 4]);
+      ctx.strokeRect(-dw / 2, -dh / 2, dw, dh);
       ctx.setLineDash([]);
-      ctx.fillStyle = (track.id === selTrackId ? '#00ff88' : '#ffffff') + '22';
-      ctx.fillRect(dx, dy, dw, dh);
+      ctx.fillStyle = (isSel ? '#00ff88' : '#ffffff') + '22';
+      ctx.fillRect(-dw / 2, -dh / 2, dw, dh);
+      ctx.restore();
+
+      // Corner handles on selected track only
+      if (isSel) {
+        const corners = getCorners(dx + dw / 2, dy + dh / 2, dw / 2, dh / 2, rot);
+        for (const corner of Object.values(corners)) {
+          ctx.beginPath();
+          ctx.arc(corner.x, corner.y, HANDLE_RADIUS, 0, Math.PI * 2);
+          ctx.fillStyle = '#00ff88';
+          ctx.fill();
+          ctx.strokeStyle = '#000';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+      }
     }
 
+    // Draw-in-progress preview rect
     if (isDrawingNew && mode === 'draw') {
       const x = Math.min(dragStartX, dragCurrentX);
       const y = Math.min(dragStartY, dragCurrentY);
@@ -196,6 +285,8 @@
     }
   }
 
+  // ── mouse helpers ──────────────────────────────────────────────────────────
+
   function getCanvasPos(e: MouseEvent): { x: number; y: number } {
     const rect = overlayCanvas.getBoundingClientRect();
     return {
@@ -204,23 +295,52 @@
     };
   }
 
-  function onMouseDown(e: MouseEvent) {
-    const { x, y } = getCanvasPos(e);
+  function toNative(px: number, py: number) {
+    return {
+      x: px * (nativeWidth / displayWidth),
+      y: py * (nativeHeight / displayHeight),
+    };
+  }
 
+  // ── mouse handlers ─────────────────────────────────────────────────────────
+
+  function onMouseDown(e: MouseEvent) {
+    const pos = getCanvasPos(e);
+    const scaleX = displayWidth / nativeWidth;
+    const scaleY = displayHeight / nativeHeight;
+    const t = get(currentTime);
+
+    // 1. Check corner handles on the selected track first
+    if (selTrackId && nativeWidth > 0) {
+      const selTrack = tracks.find((tr) => tr.id === selTrackId);
+      if (selTrack) {
+        const rect = interpolateKeyframes(selTrack.keyframes, t);
+        if (rect) {
+          const handle = hitTestHandle(pos, rect, scaleX, scaleY);
+          if (handle) {
+            const n = toNative(pos.x, pos.y);
+            isDraggingHandle = true;
+            dragHandleType = handle;
+            handleTrackId = selTrackId;
+            handleInitialRect = { ...rect };
+            return;
+          }
+        }
+      }
+    }
+
+    // 2. Draw mode — start new rectangle
     if (mode === 'draw' && selTrackId) {
       isDrawingNew = true;
-      dragStartX = x;
-      dragStartY = y;
-      dragCurrentX = x;
-      dragCurrentY = y;
+      dragStartX = pos.x;
+      dragStartY = pos.y;
+      dragCurrentX = pos.x;
+      dragCurrentY = pos.y;
       return;
     }
 
+    // 3. Select mode — hit-test existing rects for moving
     if (mode === 'select' && nativeWidth > 0) {
-      const scaleX = displayWidth / nativeWidth;
-      const scaleY = displayHeight / nativeHeight;
-      const t = get(currentTime);
-
       for (const track of [...tracks].reverse()) {
         if (!track.enabled) continue;
         const rect = interpolateKeyframes(track.keyframes, t);
@@ -229,12 +349,18 @@
         const dy = rect.y * scaleY;
         const dw = rect.width * scaleX;
         const dh = rect.height * scaleY;
-        if (x >= dx && x <= dx + dw && y >= dy && y <= dy + dh) {
+        const rot = (rect.rotation ?? 0) * Math.PI / 180;
+        const cosA = Math.cos(rot), sinA = Math.sin(rot);
+        const cx = dx + dw / 2, cy = dy + dh / 2;
+        const ox = pos.x - cx, oy = pos.y - cy;
+        const lx = ox * cosA + oy * sinA;
+        const ly = -ox * sinA + oy * cosA;
+        if (Math.abs(lx) <= dw / 2 && Math.abs(ly) <= dh / 2) {
           selectedTrackId.set(track.id);
           isDraggingRect = true;
           dragTrackId = track.id;
-          dragStartX = x;
-          dragStartY = y;
+          dragMoveStartX = pos.x;
+          dragMoveStartY = pos.y;
           dragInitialRect = { ...rect };
           break;
         }
@@ -243,59 +369,67 @@
   }
 
   function onMouseMove(e: MouseEvent) {
-    const { x, y } = getCanvasPos(e);
+    const pos = getCanvasPos(e);
 
     if (isDrawingNew) {
-      dragCurrentX = x;
-      dragCurrentY = y;
+      dragCurrentX = pos.x;
+      dragCurrentY = pos.y;
+      return;
+    }
+
+    if (isDraggingHandle && nativeWidth > 0) {
+      const n = toNative(pos.x, pos.y);
+      const t = get(currentTime);
+      const nr = computeHandleDragRect(n.x, n.y, dragHandleType, handleInitialRect);
+      projectStore.addKeyframe(handleTrackId, t, nr.x, nr.y, nr.width, nr.height, nr.rotation);
       return;
     }
 
     if (isDraggingRect && nativeWidth > 0) {
-      const dx = x - dragStartX;
-      const dy = y - dragStartY;
+      const dx = pos.x - dragMoveStartX;
+      const dy = pos.y - dragMoveStartY;
       const scaleX = nativeWidth / displayWidth;
       const scaleY = nativeHeight / displayHeight;
       const t = get(currentTime);
       const newX = clamp(dragInitialRect.x + dx * scaleX, 0, nativeWidth - dragInitialRect.width);
       const newY = clamp(dragInitialRect.y + dy * scaleY, 0, nativeHeight - dragInitialRect.height);
-      projectStore.addKeyframe(dragTrackId, t, newX, newY, dragInitialRect.width, dragInitialRect.height);
+      projectStore.addKeyframe(
+        dragTrackId, t, newX, newY,
+        dragInitialRect.width, dragInitialRect.height, dragInitialRect.rotation,
+      );
     }
   }
 
   function onMouseUp(e: MouseEvent) {
-    const { x, y } = getCanvasPos(e);
+    const pos = getCanvasPos(e);
 
     if (isDrawingNew && selTrackId && nativeWidth > 0) {
-      const rx = Math.min(dragStartX, x);
-      const ry = Math.min(dragStartY, y);
-      const rw = Math.abs(x - dragStartX);
-      const rh = Math.abs(y - dragStartY);
+      const rx = Math.min(dragStartX, pos.x);
+      const ry = Math.min(dragStartY, pos.y);
+      const rw = Math.abs(pos.x - dragStartX);
+      const rh = Math.abs(pos.y - dragStartY);
       if (rw > 5 && rh > 5) {
         const scaleX = nativeWidth / displayWidth;
         const scaleY = nativeHeight / displayHeight;
         const t = get(currentTime);
-        projectStore.addKeyframe(selTrackId, t, rx * scaleX, ry * scaleY, rw * scaleX, rh * scaleY);
+        projectStore.addKeyframe(selTrackId, t, rx * scaleX, ry * scaleY, rw * scaleX, rh * scaleY, 0);
       }
       isDrawingNew = false;
       return;
     }
 
+    isDraggingHandle = false;
     isDraggingRect = false;
   }
 
   function onDrop(e: DragEvent) {
     e.preventDefault();
     const file = e.dataTransfer?.files?.[0];
-    if (file && file.type.startsWith('video/')) {
-      videoFile = file;
-    }
+    if (file && file.type.startsWith('video/')) videoFile = file;
   }
 
   onMount(() => {
-    const ro = new ResizeObserver(() => {
-      updateDisplaySize();
-    });
+    const ro = new ResizeObserver(() => updateDisplaySize());
     if (containerEl) ro.observe(containerEl);
     return () => ro.disconnect();
   });
@@ -346,14 +480,12 @@
       muted
       playsinline
     ></video>
-    <!-- WebGL2 render canvas (hidden when GL unavailable) -->
     <canvas
       bind:this={glCanvas}
       class="gl-canvas"
       class:hidden={glFailed}
       style="width:{displayWidth}px;height:{displayHeight}px"
     ></canvas>
-    <!-- Canvas2D fallback (shown only when WebGL2 init failed) -->
     {#if glFailed}
       <canvas
         bind:this={fallbackCanvas}
@@ -401,19 +533,11 @@
     pointer-events: all;
   }
 
-  .drop-icon {
-    font-size: 48px;
-  }
+  .drop-icon { font-size: 48px; }
 
-  .drop-hint p {
-    margin: 0;
-    font-size: 16px;
-  }
+  .drop-hint p { margin: 0; font-size: 16px; }
 
-  .drop-hint .sub {
-    font-size: 13px;
-    opacity: 0.6;
-  }
+  .drop-hint .sub { font-size: 13px; opacity: 0.6; }
 
   .file-input {
     position: absolute;
@@ -422,9 +546,7 @@
     cursor: pointer;
   }
 
-  .video-wrapper {
-    position: relative;
-  }
+  .video-wrapper { position: relative; }
 
   .video-el {
     position: absolute;
@@ -441,9 +563,7 @@
     pointer-events: none;
   }
 
-  .gl-canvas.hidden {
-    display: none;
-  }
+  .gl-canvas.hidden { display: none; }
 
   .overlay-canvas {
     position: absolute;

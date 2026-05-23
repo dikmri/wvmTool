@@ -14,12 +14,12 @@ export function interpolateKeyframes(
 
   if (time <= sorted[0].time) {
     const kf = sorted[0];
-    return { x: kf.x, y: kf.y, width: kf.width, height: kf.height };
+    return { x: kf.x, y: kf.y, width: kf.width, height: kf.height, rotation: kf.rotation ?? 0 };
   }
 
   if (time >= sorted[sorted.length - 1].time) {
     const kf = sorted[sorted.length - 1];
-    return { x: kf.x, y: kf.y, width: kf.width, height: kf.height };
+    return { x: kf.x, y: kf.y, width: kf.width, height: kf.height, rotation: kf.rotation ?? 0 };
   }
 
   for (let i = 0; i < sorted.length - 1; i++) {
@@ -32,6 +32,7 @@ export function interpolateKeyframes(
         y: lerp(a.y, b.y, t),
         width: lerp(a.width, b.width, t),
         height: lerp(a.height, b.height, t),
+        rotation: lerp(a.rotation ?? 0, b.rotation ?? 0, t),
       };
     }
   }

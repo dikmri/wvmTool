@@ -89,16 +89,6 @@
     </label>
 
     <label class="setting-item">
-      <span>音声保持</span>
-      <input
-        type="checkbox"
-        checked={settings.preserveAudio}
-        on:change={(e) =>
-          projectStore.updateExportSettings({ preserveAudio: (e.target as HTMLInputElement).checked })}
-      />
-    </label>
-
-    <label class="setting-item">
       <span>接尾辞</span>
       <input
         type="text"

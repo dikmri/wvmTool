@@ -31,6 +31,7 @@ function postProgress(current: number, total: number): void {
 /**
  * Build a raw AVCDecoderConfigurationRecord (the binary payload that
  * VideoDecoder expects in `description`) from mp4box's parsed avcC box.
+ * mp4box v0.5.x stores SPS/PPS as `SPS`/`PPS` (not `SPSs`/`PPSs`).
  */
 function buildAVCDescription(avcC: {
   configurationVersion: number;
@@ -38,13 +39,13 @@ function buildAVCDescription(avcC: {
   profile_compatibility: number;
   AVCLevelIndication: number;
   lengthSizeMinusOne: number;
-  SPSs: Array<{ nalu: Uint8Array }>;
-  PPSs: Array<{ nalu: Uint8Array }>;
+  SPS: Array<{ length: number; nalu: Uint8Array }>;
+  PPS: Array<{ length: number; nalu: Uint8Array }>;
 }): Uint8Array {
   let size = 6;
-  for (const sps of avcC.SPSs) size += 2 + sps.nalu.byteLength;
+  for (const sps of avcC.SPS) size += 2 + sps.nalu.byteLength;
   size += 1;
-  for (const pps of avcC.PPSs) size += 2 + pps.nalu.byteLength;
+  for (const pps of avcC.PPS) size += 2 + pps.nalu.byteLength;
 
   const buf = new Uint8Array(size);
   let o = 0;
@@ -53,15 +54,15 @@ function buildAVCDescription(avcC: {
   buf[o++] = avcC.profile_compatibility;
   buf[o++] = avcC.AVCLevelIndication;
   buf[o++] = 0xfc | (avcC.lengthSizeMinusOne & 0x03);
-  buf[o++] = 0xe0 | (avcC.SPSs.length & 0x1f);
-  for (const sps of avcC.SPSs) {
+  buf[o++] = 0xe0 | (avcC.SPS.length & 0x1f);
+  for (const sps of avcC.SPS) {
     buf[o++] = (sps.nalu.byteLength >> 8) & 0xff;
     buf[o++] = sps.nalu.byteLength & 0xff;
     buf.set(sps.nalu, o);
     o += sps.nalu.byteLength;
   }
-  buf[o++] = avcC.PPSs.length & 0xff;
-  for (const pps of avcC.PPSs) {
+  buf[o++] = avcC.PPS.length & 0xff;
+  for (const pps of avcC.PPS) {
     buf[o++] = (pps.nalu.byteLength >> 8) & 0xff;
     buf[o++] = pps.nalu.byteLength & 0xff;
     buf.set(pps.nalu, o);
@@ -85,16 +86,18 @@ async function runExport(
     const { Muxer, ArrayBufferTarget } = await import('mp4-muxer');
 
     // ── codec strings ────────────────────────────────────────────────────────
-    // BUG-F3 fix: derive both the encoder codec string AND the muxer codec key
-    // from the same settings value so they always stay in sync.
+    // Use high-level codec strings to avoid resolution limit errors.
+    // avc1.640033 = H.264 High Profile Level 5.1 (supports up to 4K@30fps).
+    // vp09.00.51.08 = VP9 Profile 0 Level 5.1.
+    // av01.0.13M.08 = AV1 Main Profile Level 4.1.
     type MuxerCodec = 'avc' | 'vp9' | 'av1';
-    let encoderCodec = 'avc1.42001f';
+    let encoderCodec = 'avc1.640033';
     let muxerCodec: MuxerCodec = 'avc';
     if (settings.videoCodec === 'vp09') {
-      encoderCodec = 'vp09.00.10.08';
+      encoderCodec = 'vp09.00.51.08';
       muxerCodec = 'vp9';
     } else if (settings.videoCodec === 'av01') {
-      encoderCodec = 'av01.0.04M.08';
+      encoderCodec = 'av01.0.13M.08';
       muxerCodec = 'av1';
     }
 
@@ -234,9 +237,9 @@ async function runExport(
           const trak = traks?.find((t) => t.tkhd.track_id === track.id);
           const entry = trak?.mdia?.minf?.stbl?.stsd?.entries?.[0];
           const avcC = entry?.avcC as Parameters<typeof buildAVCDescription>[0] | undefined;
-          if (avcC?.SPSs && avcC.SPSs.length > 0) {
+          if (avcC?.SPS && avcC.SPS.length > 0) {
             description = buildAVCDescription(avcC);
-            logger.debug('export-worker:avcC-extracted', { spsCount: avcC.SPSs.length });
+            logger.debug('export-worker:avcC-extracted', { spsCount: avcC.SPS.length });
           }
         } catch (e) {
           logger.warn('export-worker:avcC-extract-failed', e);

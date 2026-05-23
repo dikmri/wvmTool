@@ -3,6 +3,7 @@
   import { currentTime, duration, fps, isPlaying, totalFrames, currentFrame, videoElement } from '../stores/playback-store';
   import { tracksStore, projectStore } from '../stores/project-store';
   import { selectedTrackId, selectedKeyframeId } from '../stores/ui-store';
+  import { interpolateKeyframes } from '../../engine/keyframe-interpolator';
 
   $: tracks = $tracksStore;
   $: dur = $duration;
@@ -85,6 +86,21 @@
     isDraggingScrubber = false;
   }
 
+  function rotateSelectedTrack(code: string) {
+    const trackId = get(selectedTrackId);
+    if (!trackId) return;
+    const project = get({ subscribe: projectStore.subscribe });
+    if (!project) return;
+    const track = project.tracks.find((tr) => tr.id === trackId);
+    if (!track) return;
+    const t = get(currentTime);
+    const rect = interpolateKeyframes(track.keyframes, t);
+    if (!rect) return;
+    const delta = code === 'KeyQ' ? -5 : code === 'KeyE' ? 5 : 0;
+    const newRotation = code === 'KeyR' ? 0 : (rect.rotation ?? 0) + delta;
+    projectStore.addKeyframe(trackId, t, rect.x, rect.y, rect.width, rect.height, newRotation);
+  }
+
   function formatTime(t: number): string {
     const m = Math.floor(t / 60);
     const s = Math.floor(t % 60);
@@ -99,10 +115,11 @@
   on:keydown={(e) => {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
-    if (e.code === 'ArrowLeft') { e.preventDefault(); seekByFrame(e.shiftKey ? -10 : -1); }
-    if (e.code === 'ArrowRight') { e.preventDefault(); seekByFrame(e.shiftKey ? 10 : 1); }
+    if (e.code === 'ArrowLeft') { e.preventDefault(); seekByFrame(-1); }
+    if (e.code === 'ArrowRight') { e.preventDefault(); seekByFrame(1); }
     if (e.code === 'KeyK') { e.preventDefault(); addKeyframe(); }
     if (e.code === 'Delete') { e.preventDefault(); deleteSelectedKeyframe(); }
+    if (e.code === 'KeyQ' || e.code === 'KeyE' || e.code === 'KeyR') { e.preventDefault(); rotateSelectedTrack(e.code); }
   }}
 />
 
@@ -190,11 +207,16 @@
     background: #333;
     border: 1px solid #444;
     color: #ccc;
-    padding: 4px 10px;
+    padding: 0 10px;
+    height: 28px;
     border-radius: 4px;
     cursor: pointer;
     font-size: 13px;
     transition: background 0.15s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
   }
 
   .ctrl-btn:hover {

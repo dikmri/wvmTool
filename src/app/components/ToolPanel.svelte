@@ -10,11 +10,11 @@
 
   function addTrack() {
     projectStore.addTrack();
-    // Auto-select new track
     const project = get({ subscribe: projectStore.subscribe });
     if (project && project.tracks.length > 0) {
       selectedTrackId.set(project.tracks[project.tracks.length - 1].id);
     }
+    drawingMode.set('draw');
   }
 
   function removeSelectedTrack() {
@@ -94,7 +94,10 @@
       {#if track.id === selTrackId}
         <div class="track-settings">
           <label class="setting-row">
-            <span>モザイクサイズ</span>
+            <div class="setting-label-row">
+              <span>モザイクサイズ</span>
+              <span class="val">{track.mosaicSize}px</span>
+            </div>
             <input
               type="range"
               min="5"
@@ -102,7 +105,6 @@
               value={track.mosaicSize}
               on:input={(e) => setMosaicSize(track.id, e)}
             />
-            <span class="val">{track.mosaicSize}px</span>
           </label>
         </div>
       {/if}
@@ -125,6 +127,7 @@
     flex-direction: column;
     gap: 10px;
     overflow-y: auto;
+    overflow-x: hidden;
   }
 
   .panel-title {
@@ -258,21 +261,26 @@
 
   .setting-row {
     display: flex;
-    align-items: center;
-    gap: 6px;
+    flex-direction: column;
+    gap: 4px;
     font-size: 11px;
     color: #aaa;
   }
 
+  .setting-label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
   .setting-row input[type='range'] {
-    flex: 1;
+    width: 100%;
     accent-color: #00cc66;
   }
 
   .val {
-    min-width: 30px;
-    text-align: right;
     color: #00cc66;
+    white-space: nowrap;
   }
 
   .empty-hint {

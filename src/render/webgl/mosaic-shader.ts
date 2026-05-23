@@ -8,7 +8,7 @@ void main() {
 }
 `;
 
-// Mosaic shader: pixelates specified rectangular regions
+// Mosaic shader: pixelates specified rectangular regions (supports rotation)
 export const FRAGMENT_SHADER_SRC = `#version 300 es
 precision highp float;
 
@@ -20,8 +20,9 @@ uniform vec2 u_resolution;
 
 // Up to 8 mosaic regions
 uniform int u_mosaicCount;
-uniform vec4 u_mosaicRects[8];   // x, y, width, height in normalized coords (0..1)
-uniform float u_mosaicSizes[8];  // pixel block size for each region
+uniform vec4 u_mosaicRects[8];      // x, y, width, height in normalized coords (0..1)
+uniform float u_mosaicSizes[8];     // pixel block size for each region
+uniform float u_mosaicRotations[8]; // rotation in radians
 
 void main() {
   vec2 uv = v_texCoord;
@@ -31,14 +32,23 @@ void main() {
     if (i >= u_mosaicCount) break;
     vec4 rect = u_mosaicRects[i];
     float blockSize = u_mosaicSizes[i];
+    float angle = u_mosaicRotations[i];
 
-    float rx = rect.x;
-    float ry = rect.y;
-    float rw = rect.z;
-    float rh = rect.w;
+    float cx = rect.x + rect.z * 0.5;
+    float cy = rect.y + rect.w * 0.5;
+    float hw = rect.z * 0.5;
+    float hh = rect.w * 0.5;
 
-    if (uv.x >= rx && uv.x <= rx + rw && uv.y >= ry && uv.y <= ry + rh) {
-      // Pixelate by snapping to block grid
+    // Rotate UV into rect-local frame (inverse rotation)
+    float cosA = cos(angle);
+    float sinA = sin(angle);
+    float dx = uv.x - cx;
+    float dy = uv.y - cy;
+    float localX = dx * cosA + dy * sinA;
+    float localY = -dx * sinA + dy * cosA;
+
+    if (abs(localX) <= hw && abs(localY) <= hh) {
+      // Pixelate by snapping to block grid in screen space
       float bx = blockSize / u_resolution.x;
       float by = blockSize / u_resolution.y;
       float snappedU = floor(uv.x / bx) * bx + bx * 0.5;

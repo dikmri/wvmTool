@@ -15,6 +15,7 @@ export type MosaicKeyframe = {
   y: number;
   width: number;
   height: number;
+  rotation: number;
 };
 
 export type MosaicTrack = {
@@ -31,7 +32,6 @@ export type ExportSettings = {
   videoCodec: 'avc1' | 'vp09' | 'av01' | 'auto';
   bitrateMode: 'auto' | 'manual';
   bitrate?: number;
-  preserveAudio: boolean;
   trimStartFrames: number;
   trimEndFrames: number;
   previewScale: number;
@@ -41,7 +41,6 @@ export const defaultExportSettings: ExportSettings = {
   outputFileSuffix: '_mosaic',
   videoCodec: 'auto',
   bitrateMode: 'auto',
-  preserveAudio: true,
   trimStartFrames: 0,
   trimEndFrames: 0,
   previewScale: 0.5,
@@ -110,4 +109,5 @@ export type InterpolatedRect = {
   y: number;
   width: number;
   height: number;
+  rotation: number;
 };

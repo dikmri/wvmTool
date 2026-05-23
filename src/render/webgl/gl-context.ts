@@ -87,6 +87,7 @@ export class WebGL2MosaicRenderer {
 
     const rectData = new Float32Array(MAX * 4);
     const sizeData = new Float32Array(MAX);
+    const rotData = new Float32Array(MAX);
 
     for (let i = 0; i < count; i++) {
       const { track, rect } = trackRects[i];
@@ -99,10 +100,12 @@ export class WebGL2MosaicRenderer {
       rectData[i * 4 + 2] = nw;
       rectData[i * 4 + 3] = nh;
       sizeData[i] = track.mosaicSize;
+      rotData[i] = (rect.rotation ?? 0) * Math.PI / 180;
     }
 
     gl.uniform4fv(gl.getUniformLocation(this.program, 'u_mosaicRects'), rectData);
     gl.uniform1fv(gl.getUniformLocation(this.program, 'u_mosaicSizes'), sizeData);
+    gl.uniform1fv(gl.getUniformLocation(this.program, 'u_mosaicRotations'), rotData);
 
     gl.bindVertexArray(this.vao);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
