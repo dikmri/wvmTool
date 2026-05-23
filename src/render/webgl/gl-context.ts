@@ -107,6 +107,8 @@ export class WebGL2MosaicRenderer {
 
   async readPixels(): Promise<ImageBitmap> {
     const gl = this.gl;
+    // GPU コマンドをすべて完了させてから読み取る
+    gl.finish();
     const pixels = new Uint8ClampedArray(this.width * this.height * 4);
     gl.readPixels(0, 0, this.width, this.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
     // WebGL y-axis is flipped

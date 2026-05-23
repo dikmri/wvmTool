@@ -25,19 +25,8 @@ function postProgress(current: number, total: number): void {
 }
 
 /**
- * 画質プリセット → AVC quantizer 値（低いほど高画質）
- * 参考: ffmpeg CRF スケール相当
- */
-const QUALITY_TO_QUANTIZER: Record<string, number> = {
-  highest: 16,
-  high:    22,
-  medium:  28,
-  low:     35,
-};
-
-/**
- * quantizer 非対応時の CBR フォールバックビットレート（bps）
- * 十分に高いビットレートを指定して画質を担保する
+ * 画質プリセット → ターゲットビットレート（bps）
+ * ハードウェアエンコーダーの quantizer 実装差異を避け、高ビットレート VBR で品質を担保する
  */
 const QUALITY_TO_BITRATE: Record<string, number> = {
   highest: 50_000_000,
@@ -131,26 +120,10 @@ async function runExport(
     else if (settings.videoCodec === 'av01') { encoderCodec = 'av01.0.13M.08'; muxerCodec = 'av1'; }
 
     // ── 画質設定 ──────────────────────────────────────────────────────────────
-    const quantizerValue = QUALITY_TO_QUANTIZER[settings.quality] ?? 22;
-    const fallbackBitrate = QUALITY_TO_BITRATE[settings.quality] ?? 25_000_000;
-
-    // ── quantizer モードのサポート確認 ────────────────────────────────────────
-    // prefer-software を指定して OpenH264 等のソフトウェアエンコーダーで確認する。
-    // Windows の Media Foundation ハードウェアエンコーダーは quantizer を無視することがあるため。
-    let useQuantizer = false;
-    try {
-      const check = await VideoEncoder.isConfigSupported({
-        codec: encoderCodec,
-        width: meta.width,
-        height: meta.height,
-        bitrateMode: 'quantizer',
-        framerate: meta.fps ?? 30,
-        latencyMode: 'quality',
-        hardwareAcceleration: 'prefer-software',
-      });
-      useQuantizer = check.supported === true;
-    } catch { useQuantizer = false; }
-    logger.info('export-worker:quantizer-support', { supported: useQuantizer, quantizer: quantizerValue, codec: muxerCodec });
+    // bitrateMode:'quantizer' はハードウェアエンコーダー実装により動作が不安定なため、
+    // 高ビットレート VBR を使用して画質を担保する。
+    const targetBitrate = QUALITY_TO_BITRATE[settings.quality] ?? 25_000_000;
+    logger.info('export-worker:quality-config', { quality: settings.quality, bitrate: targetBitrate, codec: muxerCodec });
 
     // ── レンダラー ────────────────────────────────────────────────────────────
     let renderer: WebGL2MosaicRenderer | null = null;
@@ -202,14 +175,7 @@ async function runExport(
             });
             const isKey = frameIndex % Math.round(detectedFps * 2) === 0;
 
-            // per-frame quantizer 指定（コーデック別に型が異なるため as any キャストを使用）
-            const encOpts: VideoEncoderEncodeOptions = { keyFrame: isKey };
-            if (useQuantizer) {
-              if (muxerCodec === 'avc') encOpts.avc = { quantizer: quantizerValue };
-              else if (muxerCodec === 'vp9') (encOpts as unknown as { vp9: { quantizer: number } }).vp9 = { quantizer: quantizerValue };
-              else if (muxerCodec === 'av1') (encOpts as unknown as { av1: { quantizer: number } }).av1 = { quantizer: quantizerValue };
-            }
-            encoder!.encode(outputFrame, encOpts);
+            encoder!.encode(outputFrame, { keyFrame: isKey });
 
             outputFrame.close();
             processedBitmap.close();
@@ -292,34 +258,16 @@ async function runExport(
           error: (e: Error) => logger.error('export-worker:encoder-error', e),
         });
 
-        if (useQuantizer) {
-          // quantizer モード: 品質を直接制御（ffmpeg -crf 相当）
-          // prefer-software でソフトウェアエンコーダー（OpenH264 等）を使用し、
-          // Windows Media Foundation ハードウェアエンコーダーによる画質劣化を回避する
-          encoder.configure({
-            codec: encoderCodec,
-            width: meta.width,
-            height: meta.height,
-            bitrateMode: 'quantizer',
-            framerate: detectedFps,
-            latencyMode: 'quality',
-            hardwareAcceleration: 'prefer-software',
-          });
-          logger.info('export-worker:encoder-configured', { mode: 'quantizer', quantizer: quantizerValue, fps: detectedFps, hw: 'prefer-software' });
-        } else {
-          // フォールバック: 高ビットレート CBR（quantizer 非対応環境向け）
-          encoder.configure({
-            codec: encoderCodec,
-            width: meta.width,
-            height: meta.height,
-            bitrate: fallbackBitrate,
-            bitrateMode: 'constant',
-            framerate: detectedFps,
-            latencyMode: 'quality',
-            hardwareAcceleration: 'prefer-software',
-          });
-          logger.info('export-worker:encoder-configured', { mode: 'cbr', bitrate: fallbackBitrate, fps: detectedFps, hw: 'prefer-software' });
-        }
+        encoder.configure({
+          codec: encoderCodec,
+          width: meta.width,
+          height: meta.height,
+          bitrate: targetBitrate,
+          bitrateMode: 'variable',
+          framerate: detectedFps,
+          latencyMode: 'quality',
+        });
+        logger.info('export-worker:encoder-configured', { codec: encoderCodec, bitrate: targetBitrate, fps: detectedFps });
 
         // ── デコーダー設定 ────────────────────────────────────────────────────
         let description: Uint8Array | undefined;
