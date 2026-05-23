@@ -7,6 +7,7 @@
   import { interpolateKeyframes } from '../../engine/keyframe-interpolator';
   import { clamp } from '../../engine/coordinate';
   import { WebGL2MosaicRenderer } from '../../render/webgl/gl-context';
+  import { applyMosaicCanvas2D } from '../../render/canvas/canvas2d-fallback';
   import { logger } from '../../utils/logger';
 
   export let videoFile: File | null = null;
@@ -36,6 +37,8 @@
   let dragTrackId = '';
   let dragInitialRect = { x: 0, y: 0, width: 0, height: 0 };
   let glReady = false;
+  let glFailed = false;          // true when WebGL2 is unavailable → use Canvas2D fallback
+  let fallbackCanvas: HTMLCanvasElement;  // Canvas2D fallback overlay
 
   $: tracks = $tracksStore;
   $: selTrackId = $selectedTrackId;
@@ -100,6 +103,7 @@
 
   async function initGL() {
     if (nativeWidth === 0 || nativeHeight === 0) return;
+    glFailed = false;
     try {
       glCanvas.width = nativeWidth;
       glCanvas.height = nativeHeight;
@@ -108,8 +112,9 @@
       glReady = true;
       logger.info('viewport:gl-ready', { nativeWidth, nativeHeight });
     } catch (e) {
-      logger.warn('viewport:gl-init-failed', e);
+      logger.warn('viewport:gl-init-failed — using Canvas2D fallback', e);
       glReady = false;
+      glFailed = true;
     }
     startRenderLoop();
   }
@@ -117,15 +122,40 @@
   function startRenderLoop() {
     cancelAnimationFrame(raf);
     const render = () => {
-      if (glReady && glRenderer && videoEl && nativeWidth > 0) {
+      // BUG-A6 fix: only upload to GPU once the video has actual pixel data
+      if (videoEl && nativeWidth > 0 && videoEl.readyState >= 2 /* HAVE_CURRENT_DATA */) {
         const t = videoEl.currentTime;
         currentTime.set(t);
-        glRenderer.renderFrame(videoEl, tracks, t);
+
+        if (glReady && glRenderer) {
+          // WebGL path
+          glRenderer.renderFrame(videoEl, tracks, t);
+        } else if (glFailed) {
+          // BUG-A5 fix: Canvas2D fallback when WebGL is unavailable
+          renderFallback(t);
+        }
+
         drawOverlay(t);
       }
       raf = requestAnimationFrame(render);
     };
     raf = requestAnimationFrame(render);
+  }
+
+  function renderFallback(time: number) {
+    if (!fallbackCanvas || nativeWidth === 0) return;
+    fallbackCanvas.width = displayWidth;
+    fallbackCanvas.height = displayHeight;
+    const ctx = fallbackCanvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(videoEl, 0, 0, displayWidth, displayHeight);
+    applyMosaicCanvas2D(
+      ctx as unknown as OffscreenCanvasRenderingContext2D,
+      tracks,
+      time,
+      nativeWidth,
+      nativeHeight,
+    );
   }
 
   function drawOverlay(time: number) {
@@ -316,11 +346,23 @@
       muted
       playsinline
     ></video>
+    <!-- WebGL2 render canvas (hidden when GL unavailable) -->
     <canvas
       bind:this={glCanvas}
       class="gl-canvas"
+      class:hidden={glFailed}
       style="width:{displayWidth}px;height:{displayHeight}px"
     ></canvas>
+    <!-- Canvas2D fallback (shown only when WebGL2 init failed) -->
+    {#if glFailed}
+      <canvas
+        bind:this={fallbackCanvas}
+        class="gl-canvas"
+        width={displayWidth}
+        height={displayHeight}
+        style="width:{displayWidth}px;height:{displayHeight}px"
+      ></canvas>
+    {/if}
     <canvas
       bind:this={overlayCanvas}
       class="overlay-canvas"
@@ -397,6 +439,10 @@
     position: absolute;
     inset: 0;
     pointer-events: none;
+  }
+
+  .gl-canvas.hidden {
+    display: none;
   }
 
   .overlay-canvas {

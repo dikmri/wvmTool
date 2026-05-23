@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { projectStore, tracksStore } from '../stores/project-store';
+  import { projectStore, tracksStore, videoMetaStore } from '../stores/project-store';
   import { selectedTrackId, drawingMode } from '../stores/ui-store';
   import { get } from 'svelte/store';
 
   $: tracks = $tracksStore;
   $: selTrackId = $selectedTrackId;
   $: mode = $drawingMode;
+  $: hasProject = $videoMetaStore !== null;
 
   function addTrack() {
     projectStore.addTrack();
@@ -54,11 +55,19 @@
   <div class="section-title">モザイクトラック</div>
 
   <div class="track-actions">
-    <button class="action-btn add" on:click={addTrack}>＋ 追加</button>
+    <button
+      class="action-btn add"
+      on:click={addTrack}
+      disabled={!hasProject}
+      title={hasProject ? 'トラックを追加' : '動画を読み込んでください'}
+    >＋ 追加</button>
     {#if selTrackId}
       <button class="action-btn remove" on:click={removeSelectedTrack}>× 削除</button>
     {/if}
   </div>
+  {#if !hasProject}
+    <p class="no-video-hint">動画を読み込むとトラックを追加できます</p>
+  {/if}
 
   <div class="track-list">
     {#each tracks as track}
@@ -178,6 +187,8 @@
   }
 
   .add:hover { background: #224433; }
+  .add:disabled { opacity: 0.4; cursor: not-allowed; }
+  .add:disabled:hover { background: #1a3322; }
 
   .remove {
     background: #331a1a;
@@ -269,5 +280,12 @@
     color: #555;
     text-align: center;
     padding: 12px;
+  }
+
+  .no-video-hint {
+    font-size: 11px;
+    color: #666;
+    margin: 0;
+    padding: 2px 0;
   }
 </style>
