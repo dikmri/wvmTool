@@ -1,10 +1,8 @@
 <script lang="ts">
   import { get } from 'svelte/store';
-  import { currentTime, duration, fps, isPlaying, totalFrames, currentFrame } from '../stores/playback-store';
+  import { currentTime, duration, fps, isPlaying, totalFrames, currentFrame, videoElement } from '../stores/playback-store';
   import { tracksStore, projectStore } from '../stores/project-store';
   import { selectedTrackId, selectedKeyframeId } from '../stores/ui-store';
-
-  export let videoEl: HTMLVideoElement | null = null;
 
   $: tracks = $tracksStore;
   $: dur = $duration;
@@ -18,9 +16,10 @@
   let isDraggingScrubber = false;
 
   function seek(time: number) {
-    if (!videoEl) return;
-    videoEl.currentTime = Math.max(0, Math.min(time, dur));
-    currentTime.set(videoEl.currentTime);
+    const vid = get(videoElement);
+    if (!vid) return;
+    vid.currentTime = Math.max(0, Math.min(time, get(duration)));
+    currentTime.set(vid.currentTime);
   }
 
   function seekByFrame(delta: number) {
@@ -29,11 +28,12 @@
   }
 
   function togglePlay() {
-    if (!videoEl) return;
+    const vid = get(videoElement);
+    if (!vid) return;
     if (get(isPlaying)) {
-      videoEl.pause();
+      vid.pause();
     } else {
-      videoEl.play();
+      vid.play();
     }
   }
 
@@ -45,7 +45,6 @@
     const track = project.tracks.find((t) => t.id === trackId);
     if (!track) return;
     const t = get(currentTime);
-    // Use last keyframe rect as default, or center of video
     const last = track.keyframes[track.keyframes.length - 1];
     const meta = project.sourceVideoMeta;
     const x = last?.x ?? meta.width * 0.25;
@@ -64,10 +63,10 @@
   }
 
   function onTimelineClick(e: MouseEvent) {
-    if (!timelineEl || dur === 0) return;
+    if (!timelineEl || get(duration) === 0) return;
     const rect = timelineEl.getBoundingClientRect();
     const ratio = (e.clientX - rect.left) / rect.width;
-    seek(ratio * dur);
+    seek(ratio * get(duration));
   }
 
   function onScrubberMouseDown(e: MouseEvent) {
@@ -76,10 +75,10 @@
   }
 
   function onWindowMouseMove(e: MouseEvent) {
-    if (!isDraggingScrubber || !timelineEl || dur === 0) return;
+    if (!isDraggingScrubber || !timelineEl || get(duration) === 0) return;
     const rect = timelineEl.getBoundingClientRect();
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    seek(ratio * dur);
+    seek(ratio * get(duration));
   }
 
   function onWindowMouseUp() {
@@ -133,7 +132,6 @@
     aria-valuenow={ct}
     tabindex="0"
   >
-    <!-- Track keyframe markers -->
     {#each tracks as track}
       {#if track.enabled}
         {#each track.keyframes as kf}
@@ -159,7 +157,6 @@
       {/if}
     {/each}
 
-    <!-- Playhead -->
     <div
       class="playhead"
       style="left:{dur > 0 ? (ct / dur) * 100 : 0}%"
@@ -167,7 +164,6 @@
       role="presentation"
     ></div>
 
-    <!-- Progress bar -->
     <div class="progress-bar" style="width:{dur > 0 ? (ct / dur) * 100 : 0}%"></div>
   </div>
 </div>

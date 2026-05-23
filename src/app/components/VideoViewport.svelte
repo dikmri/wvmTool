@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
-  import { currentTime, isPlaying, duration, fps } from '../stores/playback-store';
-  import { projectStore, tracksStore, videoMetaStore } from '../stores/project-store';
+  import { currentTime, isPlaying, duration, fps, videoElement } from '../stores/playback-store';
+  import { projectStore, tracksStore } from '../stores/project-store';
   import { selectedTrackId, drawingMode } from '../stores/ui-store';
   import { interpolateKeyframes } from '../../engine/keyframe-interpolator';
-  import { displayToVideo, clamp } from '../../engine/coordinate';
+  import { clamp } from '../../engine/coordinate';
   import { WebGL2MosaicRenderer } from '../../render/webgl/gl-context';
   import { logger } from '../../utils/logger';
 
@@ -18,8 +18,15 @@
   let glRenderer: WebGL2MosaicRenderer | null = null;
   let raf = 0;
   let videoObjectUrl = '';
+
+  // Native dimensions from the video element (set on loadedmetadata)
+  let nativeWidth = 0;
+  let nativeHeight = 0;
+
+  // Display dimensions (CSS pixels, aspect-fit inside container)
   let displayWidth = 0;
   let displayHeight = 0;
+
   let isDraggingRect = false;
   let isDrawingNew = false;
   let dragStartX = 0;
@@ -30,32 +37,57 @@
   let dragInitialRect = { x: 0, y: 0, width: 0, height: 0 };
   let glReady = false;
 
-  $: meta = $videoMetaStore;
   $: tracks = $tracksStore;
   $: selTrackId = $selectedTrackId;
   $: mode = $drawingMode;
 
+  // React to videoFile prop changes (set by D&D or file input in this component,
+  // or passed down from App)
   $: if (videoFile) loadVideo(videoFile);
 
   async function loadVideo(file: File) {
+    glReady = false;
+    cancelAnimationFrame(raf);
+    glRenderer?.dispose();
+    glRenderer = null;
+
     if (videoObjectUrl) URL.revokeObjectURL(videoObjectUrl);
     videoObjectUrl = URL.createObjectURL(file);
     videoEl.src = videoObjectUrl;
     videoEl.load();
-    glReady = false;
   }
 
-  function onVideoLoaded() {
+  // Called by <video on:loadedmetadata>
+  function onVideoMetadataLoaded() {
+    nativeWidth = videoEl.videoWidth || 1280;
+    nativeHeight = videoEl.videoHeight || 720;
+
+    // Register metadata in project store so other components can read it
+    if (videoFile) {
+      projectStore.initProject(videoFile.name, {
+        width: nativeWidth,
+        height: nativeHeight,
+        duration: videoEl.duration,
+        fps: null,
+        hasAudio: false,
+      });
+    }
+
+    fps.set(30);
     duration.set(videoEl.duration);
+    videoElement.set(videoEl);
+
     updateDisplaySize();
     initGL();
+
+    logger.info('video:metadata-loaded', { nativeWidth, nativeHeight, duration: videoEl.duration });
   }
 
   function updateDisplaySize() {
-    if (!meta || !containerEl) return;
+    if (!containerEl || nativeWidth === 0 || nativeHeight === 0) return;
     const maxW = containerEl.clientWidth;
     const maxH = containerEl.clientHeight;
-    const ratio = meta.width / meta.height;
+    const ratio = nativeWidth / nativeHeight;
     if (maxW / ratio <= maxH) {
       displayWidth = maxW;
       displayHeight = maxW / ratio;
@@ -63,20 +95,21 @@
       displayHeight = maxH;
       displayWidth = maxH * ratio;
     }
+    logger.debug('viewport:display-size', { displayWidth, displayHeight });
   }
 
   async function initGL() {
-    if (!meta) return;
+    if (nativeWidth === 0 || nativeHeight === 0) return;
     try {
-      glRenderer?.dispose();
-      glCanvas.width = meta.width;
-      glCanvas.height = meta.height;
+      glCanvas.width = nativeWidth;
+      glCanvas.height = nativeHeight;
       glRenderer = new WebGL2MosaicRenderer(glCanvas);
-      await glRenderer.init(meta.width, meta.height);
+      await glRenderer.init(nativeWidth, nativeHeight);
       glReady = true;
-      logger.info('viewport:gl-ready', { width: meta.width, height: meta.height });
+      logger.info('viewport:gl-ready', { nativeWidth, nativeHeight });
     } catch (e) {
       logger.warn('viewport:gl-init-failed', e);
+      glReady = false;
     }
     startRenderLoop();
   }
@@ -84,26 +117,24 @@
   function startRenderLoop() {
     cancelAnimationFrame(raf);
     const render = () => {
-      if (!glReady || !glRenderer || !videoEl || !meta) {
-        raf = requestAnimationFrame(render);
-        return;
+      if (glReady && glRenderer && videoEl && nativeWidth > 0) {
+        const t = videoEl.currentTime;
+        currentTime.set(t);
+        glRenderer.renderFrame(videoEl, tracks, t);
+        drawOverlay(t);
       }
-      const t = videoEl.currentTime;
-      currentTime.set(t);
-      glRenderer.renderFrame(videoEl, tracks, t);
-      drawOverlay(t);
       raf = requestAnimationFrame(render);
     };
     raf = requestAnimationFrame(render);
   }
 
   function drawOverlay(time: number) {
-    if (!overlayCanvas || !meta) return;
+    if (!overlayCanvas || displayWidth === 0 || displayHeight === 0) return;
     const ctx = overlayCanvas.getContext('2d');
     if (!ctx) return;
     ctx.clearRect(0, 0, displayWidth, displayHeight);
-    const scaleX = displayWidth / meta.width;
-    const scaleY = displayHeight / meta.height;
+    const scaleX = displayWidth / nativeWidth;
+    const scaleY = displayHeight / nativeHeight;
 
     for (const track of tracks) {
       if (!track.enabled) continue;
@@ -122,7 +153,6 @@
       ctx.fillRect(dx, dy, dw, dh);
     }
 
-    // Draw new rect being drawn
     if (isDrawingNew && mode === 'draw') {
       const x = Math.min(dragStartX, dragCurrentX);
       const y = Math.min(dragStartY, dragCurrentY);
@@ -156,9 +186,9 @@
       return;
     }
 
-    if (mode === 'select' && meta) {
-      const scaleX = displayWidth / meta.width;
-      const scaleY = displayHeight / meta.height;
+    if (mode === 'select' && nativeWidth > 0) {
+      const scaleX = displayWidth / nativeWidth;
+      const scaleY = displayHeight / nativeHeight;
       const t = get(currentTime);
 
       for (const track of [...tracks].reverse()) {
@@ -191,16 +221,14 @@
       return;
     }
 
-    if (isDraggingRect && meta) {
+    if (isDraggingRect && nativeWidth > 0) {
       const dx = x - dragStartX;
       const dy = y - dragStartY;
-      const scaleX = meta.width / displayWidth;
-      const scaleY = meta.height / displayHeight;
-      const track = tracks.find((t) => t.id === dragTrackId);
-      if (!track) return;
+      const scaleX = nativeWidth / displayWidth;
+      const scaleY = nativeHeight / displayHeight;
       const t = get(currentTime);
-      const newX = clamp(dragInitialRect.x + dx * scaleX, 0, meta.width - dragInitialRect.width);
-      const newY = clamp(dragInitialRect.y + dy * scaleY, 0, meta.height - dragInitialRect.height);
+      const newX = clamp(dragInitialRect.x + dx * scaleX, 0, nativeWidth - dragInitialRect.width);
+      const newY = clamp(dragInitialRect.y + dy * scaleY, 0, nativeHeight - dragInitialRect.height);
       projectStore.addKeyframe(dragTrackId, t, newX, newY, dragInitialRect.width, dragInitialRect.height);
     }
   }
@@ -208,14 +236,14 @@
   function onMouseUp(e: MouseEvent) {
     const { x, y } = getCanvasPos(e);
 
-    if (isDrawingNew && selTrackId && meta) {
+    if (isDrawingNew && selTrackId && nativeWidth > 0) {
       const rx = Math.min(dragStartX, x);
       const ry = Math.min(dragStartY, y);
       const rw = Math.abs(x - dragStartX);
       const rh = Math.abs(y - dragStartY);
       if (rw > 5 && rh > 5) {
-        const scaleX = meta.width / displayWidth;
-        const scaleY = meta.height / displayHeight;
+        const scaleX = nativeWidth / displayWidth;
+        const scaleY = nativeHeight / displayHeight;
         const t = get(currentTime);
         projectStore.addKeyframe(selTrackId, t, rx * scaleX, ry * scaleY, rw * scaleX, rh * scaleY);
       }
@@ -239,7 +267,6 @@
       updateDisplaySize();
     });
     if (containerEl) ro.observe(containerEl);
-
     return () => ro.disconnect();
   });
 
@@ -261,7 +288,7 @@
   {#if !videoFile}
     <div class="drop-hint">
       <div class="drop-icon">🎬</div>
-      <p>MP4動画をドラッグ&ドロップ</p>
+      <p>MP4動画をドラッグ&amp;ドロップ</p>
       <p class="sub">または クリックして選択</p>
       <input
         type="file"
@@ -283,7 +310,7 @@
     <video
       bind:this={videoEl}
       class="video-el"
-      on:loadedmetadata={onVideoLoaded}
+      on:loadedmetadata={onVideoMetadataLoaded}
       on:play={() => isPlaying.set(true)}
       on:pause={() => isPlaying.set(false)}
       muted

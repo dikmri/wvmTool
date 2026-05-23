@@ -5,69 +5,36 @@
   import ToolPanel from './components/ToolPanel.svelte';
   import ExportPanel from './components/ExportPanel.svelte';
   import CapabilityBadge from './components/CapabilityBadge.svelte';
-  import { projectStore, videoMetaStore } from './stores/project-store';
   import { capability } from './stores/ui-store';
-  import { fps as fpsStore } from './stores/playback-store';
   import { checkCapabilities } from '../engine/validation';
   import { logger } from '../utils/logger';
 
+  // videoFile is set by VideoViewport (via bind) when the user drops or selects a file.
+  // It is passed to ExportPanel so the worker can read the raw bytes.
   let videoFile: File | null = null;
-  let videoEl: HTMLVideoElement | null = null;
 
   onMount(async () => {
     const cap = await checkCapabilities();
     capability.set(cap);
     logger.info('app:capabilities', cap);
   });
-
-  async function onVideoLoaded(file: File) {
-    videoFile = file;
-
-    // Extract metadata via a temporary video element
-    const tempVideo = document.createElement('video');
-    tempVideo.src = URL.createObjectURL(file);
-    await new Promise<void>((res) => {
-      tempVideo.onloadedmetadata = () => res();
-      tempVideo.onerror = () => res();
-    });
-
-    const meta = {
-      width: tempVideo.videoWidth || 1280,
-      height: tempVideo.videoHeight || 720,
-      duration: tempVideo.duration,
-      fps: null as number | null,
-      hasAudio: false,
-    };
-
-    URL.revokeObjectURL(tempVideo.src);
-
-    fpsStore.set(30);
-    projectStore.initProject(file.name, meta);
-    logger.info('video:loaded', meta);
-  }
-
-  // Watch for new file dropped in viewport
-  $: if (videoFile) onVideoLoaded(videoFile);
-
-  let reactiveVideoFile: File | null = null;
-  $: reactiveVideoFile = videoFile;
 </script>
 
 <div class="app">
   <header class="header">
-    <div class="logo">🎬 Video Mosaic Editor</div>
+    <div class="logo">🎬 wvmTool</div>
     <CapabilityBadge />
   </header>
 
   <div class="main-area">
     <ToolPanel />
     <div class="viewport-area">
-      <VideoViewport bind:videoFile={reactiveVideoFile} />
+      <VideoViewport bind:videoFile />
     </div>
   </div>
 
-  <Timeline {videoEl} />
-  <ExportPanel bind:videoFile={reactiveVideoFile} />
+  <Timeline />
+  <ExportPanel {videoFile} />
 </div>
 
 <style>
