@@ -39,15 +39,18 @@ void main() {
     float hw = rect.z * 0.5;
     float hh = rect.w * 0.5;
 
-    // Rotate UV into rect-local frame (inverse rotation)
+    // Rotate in pixel-space to match the canvas2D overlay.
+    // UV x-axis spans u_resolution.x pixels; y-axis spans u_resolution.y pixels,
+    // so we normalise by height to get a square coordinate space.
+    float aspect = u_resolution.x / u_resolution.y;
     float cosA = cos(angle);
     float sinA = sin(angle);
-    float dx = uv.x - cx;
-    float dy = uv.y - cy;
+    float dx = (uv.x - cx) * aspect;
+    float dy = (uv.y - cy);
     float localX = dx * cosA + dy * sinA;
     float localY = -dx * sinA + dy * cosA;
 
-    if (abs(localX) <= hw && abs(localY) <= hh) {
+    if (abs(localX) <= hw * aspect && abs(localY) <= hh) {
       // Pixelate by snapping to block grid in screen space
       float bx = blockSize / u_resolution.x;
       float by = blockSize / u_resolution.y;

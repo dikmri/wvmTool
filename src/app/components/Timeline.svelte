@@ -46,13 +46,15 @@
     const track = project.tracks.find((t) => t.id === trackId);
     if (!track) return;
     const t = get(currentTime);
-    const last = track.keyframes[track.keyframes.length - 1];
     const meta = project.sourceVideoMeta;
-    const x = last?.x ?? meta.width * 0.25;
-    const y = last?.y ?? meta.height * 0.25;
-    const w = last?.width ?? meta.width * 0.25;
-    const h = last?.height ?? meta.height * 0.25;
-    projectStore.addKeyframe(trackId, t, x, y, w, h);
+    const existing = interpolateKeyframes(track.keyframes, t);
+    const x = existing?.x ?? meta.width * 0.25;
+    const y = existing?.y ?? meta.height * 0.25;
+    const w = existing?.width ?? meta.width * 0.25;
+    const h = existing?.height ?? meta.height * 0.25;
+    const rot = existing?.rotation ?? 0;
+    const vis = existing?.visible ?? true;
+    projectStore.addKeyframe(trackId, t, x, y, w, h, rot, vis);
   }
 
   function deleteSelectedKeyframe() {
@@ -86,6 +88,20 @@
     isDraggingScrubber = false;
   }
 
+  function toggleMosaicVisibility() {
+    const trackId = get(selectedTrackId);
+    if (!trackId) return;
+    const project = get({ subscribe: projectStore.subscribe });
+    if (!project) return;
+    const track = project.tracks.find((tr) => tr.id === trackId);
+    if (!track) return;
+    const t = get(currentTime);
+    const rect = interpolateKeyframes(track.keyframes, t);
+    if (!rect) return;
+    const newVisible = !(rect.visible ?? true);
+    projectStore.addKeyframe(trackId, t, rect.x, rect.y, rect.width, rect.height, rect.rotation ?? 0, newVisible);
+  }
+
   function rotateSelectedTrack(code: string) {
     const trackId = get(selectedTrackId);
     if (!trackId) return;
@@ -98,7 +114,7 @@
     if (!rect) return;
     const delta = code === 'KeyQ' ? -5 : code === 'KeyE' ? 5 : 0;
     const newRotation = code === 'KeyR' ? 0 : (rect.rotation ?? 0) + delta;
-    projectStore.addKeyframe(trackId, t, rect.x, rect.y, rect.width, rect.height, newRotation);
+    projectStore.addKeyframe(trackId, t, rect.x, rect.y, rect.width, rect.height, newRotation, rect.visible ?? true);
   }
 
   function formatTime(t: number): string {
@@ -120,6 +136,7 @@
     if (e.code === 'KeyK') { e.preventDefault(); addKeyframe(); }
     if (e.code === 'Delete') { e.preventDefault(); deleteSelectedKeyframe(); }
     if (e.code === 'KeyQ' || e.code === 'KeyE' || e.code === 'KeyR') { e.preventDefault(); rotateSelectedTrack(e.code); }
+    if (e.code === 'KeyH') { e.preventDefault(); toggleMosaicVisibility(); }
   }}
 />
 

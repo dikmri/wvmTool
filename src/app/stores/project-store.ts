@@ -70,7 +70,7 @@ function createProjectStore() {
       });
     },
 
-    addKeyframe(trackId: string, time: number, x: number, y: number, w: number, h: number, rotation = 0): void {
+    addKeyframe(trackId: string, time: number, x: number, y: number, w: number, h: number, rotation = 0, visible = true): void {
       update((p) => {
         if (!p) return p;
         const kf: MosaicKeyframe = {
@@ -81,6 +81,7 @@ function createProjectStore() {
           width: w,
           height: h,
           rotation,
+          visible,
         };
         return {
           ...p,
@@ -114,7 +115,7 @@ function createProjectStore() {
       });
     },
 
-    updateKeyframe(trackId: string, keyframeId: string, x: number, y: number, w: number, h: number, rotation = 0): void {
+    updateKeyframe(trackId: string, keyframeId: string, x: number, y: number, w: number, h: number, rotation = 0, visible = true): void {
       update((p) => {
         if (!p) return p;
         return {
@@ -124,7 +125,7 @@ function createProjectStore() {
               ? {
                   ...t,
                   keyframes: t.keyframes.map((k) =>
-                    k.id === keyframeId ? { ...k, x, y, width: w, height: h, rotation } : k,
+                    k.id === keyframeId ? { ...k, x, y, width: w, height: h, rotation, visible } : k,
                   ),
                 }
               : t,

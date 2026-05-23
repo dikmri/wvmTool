@@ -99,30 +99,28 @@
     </label>
   </div>
 
-  {#if status === 'idle' || status === 'done' || status === 'error' || status === 'cancelled'}
+  <div class="action-area">
     <button
       class="export-btn"
-      on:click={startExport}
-      disabled={!videoFile || tracks.length === 0}
+      on:click={status !== 'exporting' ? startExport : undefined}
+      disabled={status === 'exporting' || !videoFile || tracks.length === 0}
     >
-      {status === 'done' ? '✓ 再書き出し' : '書き出し開始'}
+      {status === 'exporting' ? '書き出し中...' : status === 'done' ? '✓ 再書き出し' : '書き出し開始'}
     </button>
-    {#if !videoFile}
+    {#if status !== 'exporting' && !videoFile}
       <p class="hint">動画を読み込んでください</p>
-    {:else if tracks.length === 0}
+    {:else if status !== 'exporting' && tracks.length === 0}
       <p class="hint">モザイクトラックを追加してください</p>
     {/if}
-  {/if}
 
-  {#if status === 'exporting'}
-    <div class="progress-area">
+    <div class="progress-area" class:invisible={status !== 'exporting'}>
       <div class="progress-bar">
         <div class="progress-fill" style="width:{progressPct}%"></div>
       </div>
       <span class="progress-text">{progressPct}% ({progress.current}/{progress.total}フレーム)</span>
       <button class="cancel-btn" on:click={cancelExport}>キャンセル</button>
     </div>
-  {/if}
+  </div>
 
   {#if status === 'error' && errMsg}
     <div class="error-msg">エラー: {errMsg}</div>
@@ -178,6 +176,13 @@
     font-size: 12px;
   }
 
+  .action-area {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
   .export-btn {
     background: #1a4433;
     border: 1px solid #00cc66;
@@ -213,6 +218,10 @@
     gap: 8px;
     flex: 1;
     min-width: 200px;
+  }
+
+  .progress-area.invisible {
+    visibility: hidden;
   }
 
   .progress-bar {

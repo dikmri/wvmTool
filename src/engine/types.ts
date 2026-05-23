@@ -16,6 +16,7 @@ export type MosaicKeyframe = {
   width: number;
   height: number;
   rotation: number;
+  visible: boolean;
 };
 
 export type MosaicTrack = {
@@ -110,4 +111,5 @@ export type InterpolatedRect = {
   width: number;
   height: number;
   rotation: number;
+  visible: boolean;
 };

@@ -1,5 +1,5 @@
 import { createProgram, VERTEX_SHADER_SRC, FRAGMENT_SHADER_SRC } from './mosaic-shader';
-import type { MosaicTrack, InterpolatedRect } from '../../engine/types';
+import type { MosaicTrack } from '../../engine/types';
 import { getTrackRectsAtTime } from '../../engine/keyframe-interpolator';
 
 export class WebGL2MosaicRenderer {
@@ -67,14 +67,7 @@ export class WebGL2MosaicRenderer {
     if (!this.program || !this.vao || !this.texture) return;
 
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    if (input instanceof HTMLVideoElement) {
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, input);
-    } else if (input instanceof ImageBitmap) {
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, input);
-    } else {
-      // VideoFrame
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, input as unknown as TexImageSource);
-    }
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, input as unknown as TexImageSource);
 
     gl.useProgram(this.program);
     gl.uniform1i(gl.getUniformLocation(this.program, 'u_texture'), 0);
@@ -118,7 +111,7 @@ export class WebGL2MosaicRenderer {
     gl.readPixels(0, 0, this.width, this.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
     // WebGL y-axis is flipped
     const flipped = flipVertical(pixels, this.width, this.height);
-    const imageData = new ImageData(flipped, this.width, this.height);
+    const imageData = new ImageData(new Uint8ClampedArray(flipped.buffer as ArrayBuffer), this.width, this.height);
     return createImageBitmap(imageData);
   }
 

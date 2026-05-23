@@ -229,6 +229,10 @@
     const ctx = overlayCanvas.getContext('2d');
     if (!ctx) return;
     ctx.clearRect(0, 0, displayWidth, displayHeight);
+
+    // During playback, hide overlay so user sees pure mosaic
+    if (get(isPlaying)) return;
+
     const scaleX = displayWidth / nativeWidth;
     const scaleY = displayHeight / nativeHeight;
 
@@ -243,13 +247,15 @@
       const dh = rect.height * scaleY;
       const rot = (rect.rotation ?? 0) * Math.PI / 180;
       const isSel = track.id === selTrackId;
+      const isVisible = rect.visible !== false;
 
       ctx.save();
+      ctx.globalAlpha = isVisible ? 1.0 : 0.35;
       ctx.translate(dx + dw / 2, dy + dh / 2);
       ctx.rotate(rot);
       ctx.strokeStyle = isSel ? '#00ff88' : '#ffffff';
       ctx.lineWidth = 2;
-      ctx.setLineDash(isSel ? [] : [4, 4]);
+      ctx.setLineDash(isVisible ? (isSel ? [] : [4, 4]) : [2, 4]);
       ctx.strokeRect(-dw / 2, -dh / 2, dw, dh);
       ctx.setLineDash([]);
       ctx.fillStyle = (isSel ? '#00ff88' : '#ffffff') + '22';
@@ -259,6 +265,8 @@
       // Corner handles on selected track only
       if (isSel) {
         const corners = getCorners(dx + dw / 2, dy + dh / 2, dw / 2, dh / 2, rot);
+        ctx.save();
+        ctx.globalAlpha = isVisible ? 1.0 : 0.35;
         for (const corner of Object.values(corners)) {
           ctx.beginPath();
           ctx.arc(corner.x, corner.y, HANDLE_RADIUS, 0, Math.PI * 2);
@@ -268,6 +276,7 @@
           ctx.lineWidth = 1.5;
           ctx.stroke();
         }
+        ctx.restore();
       }
     }
 
