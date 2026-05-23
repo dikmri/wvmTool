@@ -36,6 +36,17 @@ const QUALITY_TO_QUANTIZER: Record<string, number> = {
 };
 
 /**
+ * quantizer 非対応時の CBR フォールバックビットレート（bps）
+ * 十分に高いビットレートを指定して画質を担保する
+ */
+const QUALITY_TO_BITRATE: Record<string, number> = {
+  highest: 50_000_000,
+  high:    25_000_000,
+  medium:  12_000_000,
+  low:      6_000_000,
+};
+
+/**
  * AVCDecoderConfigurationRecord を mp4box の avcC ボックスから組み立てる。
  * mp4box v0.5.x では SPS/PPS（SPSs/PPSs ではない）。
  */
@@ -121,24 +132,25 @@ async function runExport(
 
     // ── 画質設定 ──────────────────────────────────────────────────────────────
     const quantizerValue = QUALITY_TO_QUANTIZER[settings.quality] ?? 22;
+    const fallbackBitrate = QUALITY_TO_BITRATE[settings.quality] ?? 25_000_000;
 
-    // ── quantizer モードのサポート確認（H.264 のみ per-frame quantizer 型定義あり）────
-    // quantizer モード = ビットレートではなく品質で直接制御（ffmpeg の -crf 相当）
+    // ── quantizer モードのサポート確認 ────────────────────────────────────────
+    // prefer-software を指定して OpenH264 等のソフトウェアエンコーダーで確認する。
+    // Windows の Media Foundation ハードウェアエンコーダーは quantizer を無視することがあるため。
     let useQuantizer = false;
-    if (muxerCodec === 'avc') {
-      try {
-        const check = await VideoEncoder.isConfigSupported({
-          codec: encoderCodec,
-          width: meta.width,
-          height: meta.height,
-          bitrateMode: 'quantizer',
-          framerate: 30,
-          latencyMode: 'quality',
-        });
-        useQuantizer = check.supported === true;
-      } catch { useQuantizer = false; }
-      logger.info('export-worker:quantizer-support', { supported: useQuantizer, quantizer: quantizerValue });
-    }
+    try {
+      const check = await VideoEncoder.isConfigSupported({
+        codec: encoderCodec,
+        width: meta.width,
+        height: meta.height,
+        bitrateMode: 'quantizer',
+        framerate: meta.fps ?? 30,
+        latencyMode: 'quality',
+        hardwareAcceleration: 'prefer-software',
+      });
+      useQuantizer = check.supported === true;
+    } catch { useQuantizer = false; }
+    logger.info('export-worker:quantizer-support', { supported: useQuantizer, quantizer: quantizerValue, codec: muxerCodec });
 
     // ── レンダラー ────────────────────────────────────────────────────────────
     let renderer: WebGL2MosaicRenderer | null = null;
@@ -160,6 +172,9 @@ async function runExport(
     let processingActive = false;
     const pendingAudioChunks: Array<{ chunk: EncodedAudioChunk; meta?: EncodedAudioChunkMetadata }> = [];
 
+    // onReady で確定した fps をクロージャー越しに drainFrameQueue に届ける
+    let detectedFps = meta.fps ?? 30;
+
     // ── フレームキュー処理 ────────────────────────────────────────────────────
     async function drainFrameQueue(): Promise<void> {
       if (processingActive) return;
@@ -180,19 +195,20 @@ async function runExport(
               processedBitmap = await createImageBitmap(offscreen);
             }
 
-            // fps は onReady で確定するので drainFrameQueue では参照のみ（クロージャー経由）
-            const currentFps = (drainFrameQueue as unknown as { fps?: number }).fps ?? 30;
-            const frameDuration = 1 / currentFps;
-
+            const frameDuration = 1 / detectedFps;
             const outputFrame = new VideoFrame(processedBitmap, {
               timestamp: Math.round(timestamp * 1_000_000),
               duration: Math.round(frameDuration * 1_000_000),
             });
-            const isKey = frameIndex % Math.round(currentFps * 2) === 0;
+            const isKey = frameIndex % Math.round(detectedFps * 2) === 0;
 
-            // quantizer モードでは per-frame quantizer を指定する
+            // per-frame quantizer 指定（コーデック別に型が異なるため as any キャストを使用）
             const encOpts: VideoEncoderEncodeOptions = { keyFrame: isKey };
-            if (useQuantizer) encOpts.avc = { quantizer: quantizerValue };
+            if (useQuantizer) {
+              if (muxerCodec === 'avc') encOpts.avc = { quantizer: quantizerValue };
+              else if (muxerCodec === 'vp9') (encOpts as unknown as { vp9: { quantizer: number } }).vp9 = { quantizer: quantizerValue };
+              else if (muxerCodec === 'av1') (encOpts as unknown as { av1: { quantizer: number } }).av1 = { quantizer: quantizerValue };
+            }
             encoder!.encode(outputFrame, encOpts);
 
             outputFrame.close();
@@ -239,7 +255,6 @@ async function runExport(
         totalFrames = vTrack.nb_samples ?? 0;
 
         // ── 実際の fps を mp4box から計算 ──────────────────────────────────────
-        let detectedFps = meta.fps ?? 30;
         if (vTrack.nb_samples && vTrack.duration && vTrack.timescale) {
           const durationSec = vTrack.duration / vTrack.timescale;
           const computed = vTrack.nb_samples / durationSec;
@@ -247,15 +262,7 @@ async function runExport(
             detectedFps = Math.round(computed * 100) / 100;
           }
         }
-        // drainFrameQueue がクロージャー越しに fps を参照できるようにする
-        (drainFrameQueue as unknown as { fps: number }).fps = detectedFps;
         logger.info('export-worker:detected-fps', { detectedFps, totalFrames });
-
-        // ── ビットレート（quantizer 非対応時のフォールバック用） ──────────────
-        const originalBitrate = vTrack.bitrate ?? 0;
-        const autoBitrate = originalBitrate > 1_000_000
-          ? Math.max(originalBitrate, 8_000_000)
-          : Math.max(Math.round(meta.width * meta.height * detectedFps * 0.25), 8_000_000);
 
         // ── 音声 ─────────────────────────────────────────────────────────────
         const aTrack = info.audioTracks?.[0];
@@ -286,7 +293,9 @@ async function runExport(
         });
 
         if (useQuantizer) {
-          // quantizer モード: 品質を直接制御、ファイルサイズよりも画質優先
+          // quantizer モード: 品質を直接制御（ffmpeg -crf 相当）
+          // prefer-software でソフトウェアエンコーダー（OpenH264 等）を使用し、
+          // Windows Media Foundation ハードウェアエンコーダーによる画質劣化を回避する
           encoder.configure({
             codec: encoderCodec,
             width: meta.width,
@@ -294,20 +303,22 @@ async function runExport(
             bitrateMode: 'quantizer',
             framerate: detectedFps,
             latencyMode: 'quality',
+            hardwareAcceleration: 'prefer-software',
           });
-          logger.info('export-worker:encoder-configured', { mode: 'quantizer', quantizer: quantizerValue, fps: detectedFps });
+          logger.info('export-worker:encoder-configured', { mode: 'quantizer', quantizer: quantizerValue, fps: detectedFps, hw: 'prefer-software' });
         } else {
-          // フォールバック: 高ビットレート VBR
+          // フォールバック: 高ビットレート CBR（quantizer 非対応環境向け）
           encoder.configure({
             codec: encoderCodec,
             width: meta.width,
             height: meta.height,
-            bitrate: autoBitrate,
-            bitrateMode: 'variable',
+            bitrate: fallbackBitrate,
+            bitrateMode: 'constant',
             framerate: detectedFps,
             latencyMode: 'quality',
+            hardwareAcceleration: 'prefer-software',
           });
-          logger.info('export-worker:encoder-configured', { mode: 'vbr', bitrate: autoBitrate, fps: detectedFps });
+          logger.info('export-worker:encoder-configured', { mode: 'cbr', bitrate: fallbackBitrate, fps: detectedFps, hw: 'prefer-software' });
         }
 
         // ── デコーダー設定 ────────────────────────────────────────────────────
