@@ -1,10 +1,10 @@
-# Video Mosaic Editor
+# wvmTool
 
 ブラウザ完結型の動画モザイク編集Webアプリです。動画ファイルはサーバーにアップロードされず、すべてローカルブラウザ内で処理されます。
 
 ## GitHub Pages URL
 
-https://dikmri.github.io/video-mosaic-webapp/
+https://dikmri.github.io/wvmTool/
 
 ## 対応ブラウザ
 
@@ -101,5 +101,3 @@ npm run preview
 npm run build
 # dist/ ディレクトリの内容を GitHub Pages にデプロイ
 ```
-
-> **Note:** `vite.config.ts` の `base` にリポジトリ名 `/video-mosaic-webapp/` が設定されています。リポジトリ名を変更した場合はこの値も更新してください。
