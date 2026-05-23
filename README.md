@@ -4,7 +4,7 @@
 
 ## GitHub Pages URL
 
-https://kidamaru.github.io/video-mosaic-webapp/
+https://dikmri.github.io/video-mosaic-webapp/
 
 ## 対応ブラウザ
 
