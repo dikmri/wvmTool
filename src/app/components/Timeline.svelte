@@ -2,7 +2,7 @@
   import { get } from 'svelte/store';
   import { currentTime, duration, fps, isPlaying, totalFrames, currentFrame, videoElement } from '../stores/playback-store';
   import { tracksStore, projectStore } from '../stores/project-store';
-  import { selectedTrackId, selectedKeyframeId } from '../stores/ui-store';
+  import { selectedTrackId, selectedKeyframeId, drawingMode } from '../stores/ui-store';
   import { interpolateKeyframes } from '../../engine/keyframe-interpolator';
 
   $: tracks = $tracksStore;
@@ -88,6 +88,17 @@
     isDraggingScrubber = false;
   }
 
+  function addNewTrack() {
+    const project = get({ subscribe: projectStore.subscribe });
+    if (!project) return;
+    projectStore.addTrack();
+    const updated = get({ subscribe: projectStore.subscribe });
+    if (updated && updated.tracks.length > 0) {
+      selectedTrackId.set(updated.tracks[updated.tracks.length - 1].id);
+    }
+    drawingMode.set('draw');
+  }
+
   function toggleMosaicVisibility() {
     const trackId = get(selectedTrackId);
     if (!trackId) return;
@@ -137,6 +148,8 @@
     if (e.code === 'Delete') { e.preventDefault(); deleteSelectedKeyframe(); }
     if (e.code === 'KeyQ' || e.code === 'KeyE' || e.code === 'KeyR') { e.preventDefault(); rotateSelectedTrack(e.code); }
     if (e.code === 'KeyH') { e.preventDefault(); toggleMosaicVisibility(); }
+    if (e.code === 'KeyI') { e.preventDefault(); drawingMode.set('select'); }
+    if (e.code === 'KeyN') { e.preventDefault(); addNewTrack(); }
   }}
 />
 

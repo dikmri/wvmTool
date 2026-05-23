@@ -29,7 +29,7 @@ function createProjectStore() {
           id: generateId(),
           name: `Track ${p.tracks.length + 1}`,
           enabled: true,
-          mosaicSize: 20,
+          mosaicSize: 8,
           shape: 'rect',
           keyframes: [],
         };

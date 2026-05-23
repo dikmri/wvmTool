@@ -29,9 +29,8 @@ function postProgress(current: number, total: number): void {
 }
 
 /**
- * Build a raw AVCDecoderConfigurationRecord (the binary payload that
- * VideoDecoder expects in `description`) from mp4box's parsed avcC box.
- * mp4box v0.5.x stores SPS/PPS as `SPS`/`PPS` (not `SPSs`/`PPSs`).
+ * AVCDecoderConfigurationRecord (binary payload for VideoDecoder description).
+ * mp4box v0.5.x uses SPS/PPS (not SPSs/PPSs).
  */
 function buildAVCDescription(avcC: {
   configurationVersion: number;
@@ -71,6 +70,36 @@ function buildAVCDescription(avcC: {
   return buf;
 }
 
+/** AAC AudioSpecificConfig を mp4box の内部構造から取り出す */
+function extractAudioSpecificConfig(mp4file: unknown, trackId: number): Uint8Array | undefined {
+  try {
+    const traks = (mp4file as { moov?: { traks?: Array<{
+      tkhd: { track_id: number };
+      mdia: { minf: { stbl: { stsd: { entries: Array<{ esds?: unknown }> } } } };
+    }> } }).moov?.traks;
+    if (!traks) return undefined;
+    const trak = traks.find((t) => t.tkhd.track_id === trackId);
+    const entry = trak?.mdia?.minf?.stbl?.stsd?.entries?.[0];
+    const esds = (entry as { esds?: { esd?: { descs?: unknown[] } } })?.esds;
+    if (!esds?.esd?.descs) return undefined;
+
+    function findData(descs: unknown[]): Uint8Array | undefined {
+      for (const d of descs) {
+        const desc = d as { data?: unknown; descs?: unknown[] };
+        if (desc.data instanceof Uint8Array) return desc.data;
+        if (Array.isArray(desc.descs)) {
+          const found = findData(desc.descs);
+          if (found) return found;
+        }
+      }
+      return undefined;
+    }
+    return findData(esds.esd.descs);
+  } catch {
+    return undefined;
+  }
+}
+
 // ─── main export logic ────────────────────────────────────────────────────────
 
 async function runExport(
@@ -85,13 +114,9 @@ async function runExport(
     const MP4Box = (await import('mp4box')).default;
     const { Muxer, ArrayBufferTarget } = await import('mp4-muxer');
 
-    // ── codec strings ────────────────────────────────────────────────────────
-    // Use high-level codec strings to avoid resolution limit errors.
-    // avc1.640033 = H.264 High Profile Level 5.1 (supports up to 4K@30fps).
-    // vp09.00.51.08 = VP9 Profile 0 Level 5.1.
-    // av01.0.13M.08 = AV1 Main Profile Level 4.1.
+    // ── コーデック文字列 ──────────────────────────────────────────────────────
     type MuxerCodec = 'avc' | 'vp9' | 'av1';
-    let encoderCodec = 'avc1.640033';
+    let encoderCodec = 'avc1.640033'; // H.264 High Profile Level 5.1
     let muxerCodec: MuxerCodec = 'avc';
     if (settings.videoCodec === 'vp09') {
       encoderCodec = 'vp09.00.51.08';
@@ -101,7 +126,7 @@ async function runExport(
       muxerCodec = 'av1';
     }
 
-    // ── renderer ─────────────────────────────────────────────────────────────
+    // ── レンダラー ────────────────────────────────────────────────────────────
     let renderer: WebGL2MosaicRenderer | null = null;
     let useWebGL = false;
     try {
@@ -110,48 +135,25 @@ async function runExport(
       await renderer.init(meta.width, meta.height);
       useWebGL = true;
     } catch {
-      logger.warn('export-worker:webgl2-unavailable', 'falling back to canvas2d');
+      logger.warn('export-worker:webgl2-unavailable', 'Canvas2D フォールバックを使用');
     }
 
     const fps = meta.fps ?? 30;
     const frameDuration = 1 / fps;
 
-    // ── muxer ────────────────────────────────────────────────────────────────
+    // ── 状態変数 ──────────────────────────────────────────────────────────────
     const target = new ArrayBufferTarget();
-    const muxer = new Muxer({
-      target,
-      video: {
-        codec: muxerCodec,   // BUG-F3 fix: use derived codec key
-        width: meta.width,
-        height: meta.height,
-      },
-      fastStart: 'in-memory',
-    });
-
-    // ── encoder ──────────────────────────────────────────────────────────────
+    let muxer: InstanceType<typeof Muxer<typeof target>> | null = null;
+    let encoder: VideoEncoder | null = null;
     let encodedCount = 0;
-    const encoder = new VideoEncoder({
-      output: (chunk: EncodedVideoChunk, chunkMeta?: EncodedVideoChunkMetadata) => {
-        muxer.addVideoChunk(chunk, chunkMeta);
-        encodedCount++;
-      },
-      error: (e: Error) => logger.error('export-worker:encoder-error', e),
-    });
-    encoder.configure({
-      codec: encoderCodec,
-      width: meta.width,
-      height: meta.height,
-      bitrate: settings.bitrateMode === 'manual' && settings.bitrate ? settings.bitrate : 8_000_000,
-      framerate: fps,
-      latencyMode: 'quality',
-    });
-
-    // ── frame processing queue ───────────────────────────────────────────────
     let frameIndex = 0;
     let totalFrames = 0;
     const frameQueue: Array<{ frame: VideoFrame; timestamp: number }> = [];
     let processingActive = false;
+    // 音声チャンクはすべて収集してから muxer に追加（タイミング問題を回避）
+    const pendingAudioChunks: Array<{ chunk: EncodedAudioChunk; meta?: EncodedAudioChunkMetadata }> = [];
 
+    // ── フレームキュー処理 ────────────────────────────────────────────────────
     async function drainFrameQueue(): Promise<void> {
       if (processingActive) return;
       processingActive = true;
@@ -170,10 +172,7 @@ async function runExport(
               ctx.drawImage(frame, 0, 0);
               applyMosaicCanvas2D(
                 ctx as unknown as OffscreenCanvasRenderingContext2D,
-                tracks,
-                timestamp,
-                meta.width,
-                meta.height,
+                tracks, timestamp, meta.width, meta.height,
               );
               processedBitmap = await createImageBitmap(offscreen);
             }
@@ -183,7 +182,7 @@ async function runExport(
               duration: Math.round(frameDuration * 1_000_000),
             });
             const isKey = frameIndex % Math.round(fps * 2) === 0;
-            encoder.encode(outputFrame, { keyFrame: isKey });
+            encoder!.encode(outputFrame, { keyFrame: isKey });
             outputFrame.close();
             processedBitmap.close();
 
@@ -200,7 +199,7 @@ async function runExport(
       }
     }
 
-    // ── decoder ──────────────────────────────────────────────────────────────
+    // ── デコーダー ────────────────────────────────────────────────────────────
     const decoder = new VideoDecoder({
       output: (frame: VideoFrame) => {
         const ts = frame.timestamp / 1_000_000;
@@ -210,31 +209,91 @@ async function runExport(
       error: (e: Error) => logger.error('export-worker:decoder-error', e),
     });
 
-    // ── mp4box demux ─────────────────────────────────────────────────────────
-    // BUG-F1 fix: use a Promise that only resolves after ALL samples have
-    // been sent to the decoder, decoded, and the encoder has been flushed.
-    // BUG-F2 fix: extract avcC description and pass it to decoder.configure.
+    // ── mp4box デマックス ─────────────────────────────────────────────────────
     const mp4file = MP4Box.createFile();
 
     await new Promise<void>((resolve, reject) => {
       let allSamplesSent = false;
+      let videoTrackId = -1;
+      let audioTrackId = -1;
 
       mp4file.onReady = (info: {
-        videoTracks: Array<{ id: number; codec: string; nb_samples?: number }>;
+        videoTracks: Array<{ id: number; codec: string; nb_samples?: number; bitrate?: number }>;
+        audioTracks?: Array<{ id: number; codec: string; audio: { sample_rate: number; channel_count: number } }>;
       }) => {
-        const track = info.videoTracks[0];
-        if (!track) { reject(new Error('No video track found')); return; }
+        const vTrack = info.videoTracks[0];
+        if (!vTrack) { reject(new Error('映像トラックが見つかりません')); return; }
+        videoTrackId = vTrack.id;
+        totalFrames = vTrack.nb_samples ?? 0;
 
-        totalFrames = track.nb_samples ?? 0;
+        const aTrack = info.audioTracks?.[0];
+        if (aTrack) audioTrackId = aTrack.id;
 
-        // BUG-F2 fix: extract codec description for H.264
+        // ── ビットレート決定：元動画のビットレートを優先 ──────────────────────
+        const originalBitrate = (vTrack.bitrate ?? 0);
+        let autoBitrate: number;
+        if (originalBitrate > 1_000_000) {
+          // 元動画のビットレートをそのまま使用（最低 5Mbps）
+          autoBitrate = Math.max(originalBitrate, 5_000_000);
+        } else {
+          // ビットレート情報がない場合は解像度から計算（0.2 bits/pixel/frame）
+          autoBitrate = Math.max(Math.round(meta.width * meta.height * fps * 0.2), 5_000_000);
+        }
+        const bitrate = settings.bitrateMode === 'manual' && settings.bitrate
+          ? settings.bitrate
+          : autoBitrate;
+
+        // ── 音声設定 ──────────────────────────────────────────────────────────
+        let audioDescription: Uint8Array | undefined;
+        if (aTrack) {
+          audioDescription = extractAudioSpecificConfig(mp4file, aTrack.id);
+          logger.debug('export-worker:audio-track', {
+            codec: aTrack.codec,
+            sampleRate: aTrack.audio.sample_rate,
+            channels: aTrack.audio.channel_count,
+            hasDescription: !!audioDescription,
+          });
+        }
+
+        // ── Muxer 作成 ────────────────────────────────────────────────────────
+        muxer = new Muxer({
+          target,
+          video: { codec: muxerCodec, width: meta.width, height: meta.height },
+          ...(aTrack ? {
+            audio: {
+              codec: 'aac',
+              sampleRate: aTrack.audio.sample_rate,
+              numberOfChannels: aTrack.audio.channel_count,
+            },
+          } : {}),
+          fastStart: 'in-memory',
+        });
+
+        // ── エンコーダー作成 ──────────────────────────────────────────────────
+        encoder = new VideoEncoder({
+          output: (chunk: EncodedVideoChunk, chunkMeta?: EncodedVideoChunkMetadata) => {
+            muxer!.addVideoChunk(chunk, chunkMeta);
+            encodedCount++;
+          },
+          error: (e: Error) => logger.error('export-worker:encoder-error', e),
+        });
+        encoder.configure({
+          codec: encoderCodec,
+          width: meta.width,
+          height: meta.height,
+          bitrate,
+          framerate: fps,
+          latencyMode: 'quality',
+        });
+        logger.info('export-worker:encoder-configured', { codec: encoderCodec, bitrate, fps });
+
+        // ── デコーダー設定 ────────────────────────────────────────────────────
         let description: Uint8Array | undefined;
         try {
-          // mp4file.moov.traks is an array; find by track_id
           const traks = (mp4file as unknown as {
-            moov: { traks: Array<{ tkhd: { track_id: number }; mdia: { minf: { stbl: { stsd: { entries: Array<{ avcC?: unknown; hvcC?: unknown }> } } } } }> };
+            moov: { traks: Array<{ tkhd: { track_id: number }; mdia: { minf: { stbl: { stsd: { entries: Array<{ avcC?: unknown }> } } } } }> };
           }).moov.traks;
-          const trak = traks?.find((t) => t.tkhd.track_id === track.id);
+          const trak = traks?.find((t) => t.tkhd.track_id === vTrack.id);
           const entry = trak?.mdia?.minf?.stbl?.stsd?.entries?.[0];
           const avcC = entry?.avcC as Parameters<typeof buildAVCDescription>[0] | undefined;
           if (avcC?.SPS && avcC.SPS.length > 0) {
@@ -246,19 +305,35 @@ async function runExport(
         }
 
         decoder.configure({
-          codec: track.codec,
+          codec: vTrack.codec,
           codedWidth: meta.width,
           codedHeight: meta.height,
           ...(description ? { description } : {}),
         });
 
-        // Use a large nbSamples so all samples arrive in as few batches as possible
-        mp4file.setExtractionOptions(track.id, null, { nbSamples: 1_000_000 });
+        // 音声 decoder config（最初のチャンクと共に渡す）
+        if (aTrack && audioDescription) {
+          const firstMeta: EncodedAudioChunkMetadata = {
+            decoderConfig: {
+              codec: 'mp4a.40.2',
+              sampleRate: aTrack.audio.sample_rate,
+              numberOfChannels: aTrack.audio.channel_count,
+              description: audioDescription,
+            },
+          };
+          // pendingAudioChunks に先頭チャンクとして差し込むためフラグ保持
+          (mp4file as unknown as { _audioFirstMeta: EncodedAudioChunkMetadata })._audioFirstMeta = firstMeta;
+        }
+
+        mp4file.setExtractionOptions(videoTrackId, null, { nbSamples: 1_000_000 });
+        if (audioTrackId !== -1) {
+          mp4file.setExtractionOptions(audioTrackId, null, { nbSamples: 1_000_000 });
+        }
         mp4file.start();
       };
 
       mp4file.onSamples = async (
-        _id: number,
+        id: number,
         _ref: unknown,
         samples: Array<{
           data: Uint8Array;
@@ -269,7 +344,29 @@ async function runExport(
           number?: number;
         }>,
       ) => {
-        if (allSamplesSent) return; // guard against duplicate calls
+        // ── 音声パススルー ────────────────────────────────────────────────────
+        if (id === audioTrackId) {
+          const firstMeta = (mp4file as unknown as { _audioFirstMeta?: EncodedAudioChunkMetadata })._audioFirstMeta;
+          for (let i = 0; i < samples.length; i++) {
+            const sample = samples[i];
+            const chunk = new EncodedAudioChunk({
+              type: 'key',
+              timestamp: (sample.dts / sample.timescale) * 1_000_000,
+              duration: (sample.duration / sample.timescale) * 1_000_000,
+              data: sample.data,
+            });
+            pendingAudioChunks.push({
+              chunk,
+              meta: i === 0 && firstMeta ? firstMeta : undefined,
+            });
+          }
+          (mp4file as unknown as { _audioFirstMeta?: unknown })._audioFirstMeta = undefined;
+          return;
+        }
+
+        // ── 映像処理 ──────────────────────────────────────────────────────────
+        if (id !== videoTrackId) return;
+        if (allSamplesSent) return;
 
         if (totalFrames === 0) totalFrames = samples.length;
 
@@ -285,34 +382,29 @@ async function runExport(
           );
         }
 
-        // BUG-F1 fix: only finalize after the last sample batch
         const lastNum = samples[samples.length - 1]?.number ?? -1;
-        const isLastBatch = cancelled ||
-          (totalFrames > 0 && lastNum >= totalFrames - 1);
-
-        if (!isLastBatch) return; // more batches may come — do NOT resolve yet
+        const isLastBatch = cancelled || (totalFrames > 0 && lastNum >= totalFrames - 1);
+        if (!isLastBatch) return;
 
         allSamplesSent = true;
 
-        // Flush decoder → all pending frames will land in the queue
         await decoder.flush().catch((e) => logger.warn('decoder flush warn', e));
 
-        // Wait for frame queue to fully drain
         while ((frameQueue.length > 0 || processingActive) && !cancelled) {
           await sleep(16);
         }
 
-        if (cancelled) {
-          resolve();
-          return;
+        if (cancelled) { resolve(); return; }
+
+        postProgress(frameIndex, totalFrames || frameIndex);
+        await encoder!.flush().catch((e) => logger.warn('encoder flush warn', e));
+
+        // 音声チャンクを映像エンコード完了後に追加してからファイナライズ
+        for (const { chunk, meta: aMeta } of pendingAudioChunks) {
+          muxer!.addAudioChunk(chunk, aMeta);
         }
 
-        // Post final progress
-        postProgress(frameIndex, totalFrames || frameIndex);
-
-        // Flush encoder → all encoded chunks land in the muxer
-        await encoder.flush().catch((e) => logger.warn('encoder flush warn', e));
-        muxer.finalize();
+        muxer!.finalize();
         resolve();
       };
 
@@ -324,7 +416,7 @@ async function runExport(
       mp4file.flush();
     });
 
-    encoder.close();
+    encoder?.close();
     decoder.close();
     renderer?.dispose();
 

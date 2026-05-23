@@ -26,7 +26,7 @@
 
   function setMosaicSize(trackId: string, e: Event) {
     const size = parseInt((e.target as HTMLInputElement).value);
-    if (!isNaN(size)) projectStore.setTrackMosaicSize(trackId, size);
+    if (!isNaN(size) && size >= 1 && size <= 200) projectStore.setTrackMosaicSize(trackId, size);
   }
 </script>
 
@@ -93,19 +93,25 @@
 
       {#if track.id === selTrackId}
         <div class="track-settings">
-          <label class="setting-row">
-            <div class="setting-label-row">
-              <span>モザイクサイズ</span>
-              <span class="val">{track.mosaicSize}px</span>
+          <div class="setting-row">
+            <span class="setting-label">モザイクサイズ</span>
+            <div class="size-control">
+              <input
+                type="range"
+                min="2"
+                max="200"
+                value={track.mosaicSize}
+                on:input={(e) => setMosaicSize(track.id, e)}
+              />
+              <input
+                type="number"
+                min="2"
+                max="200"
+                value={track.mosaicSize}
+                on:change={(e) => setMosaicSize(track.id, e)}
+              />
             </div>
-            <input
-              type="range"
-              min="5"
-              max="80"
-              value={track.mosaicSize}
-              on:input={(e) => setMosaicSize(track.id, e)}
-            />
-          </label>
+          </div>
         </div>
       {/if}
     {/each}
@@ -267,20 +273,33 @@
     color: #aaa;
   }
 
-  .setting-label-row {
+  .setting-label {
+    font-size: 11px;
+    color: #aaa;
+  }
+
+  .size-control {
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    gap: 6px;
   }
 
-  .setting-row input[type='range'] {
-    width: 100%;
+  .size-control input[type='range'] {
+    flex: 1;
     accent-color: #00cc66;
+    min-width: 0;
   }
 
-  .val {
+  .size-control input[type='number'] {
+    width: 52px;
+    background: #2a2a2a;
+    border: 1px solid #444;
     color: #00cc66;
-    white-space: nowrap;
+    padding: 2px 4px;
+    border-radius: 4px;
+    font-size: 11px;
+    text-align: right;
+    flex-shrink: 0;
   }
 
   .empty-hint {
