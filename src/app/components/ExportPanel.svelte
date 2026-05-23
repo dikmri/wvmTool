@@ -89,6 +89,21 @@
     </label>
 
     <label class="setting-item">
+      <span>画質</span>
+      <select
+        value={settings.quality}
+        on:change={(e) =>
+          projectStore.updateExportSettings({ quality: (e.target as HTMLSelectElement).value as 'highest' | 'high' | 'medium' | 'low' })}
+        title="最高=quantizer16 / 高=22 / 標準=28 / 低=35（値が低いほど高画質）"
+      >
+        <option value="highest">最高画質（重い）</option>
+        <option value="high">高画質</option>
+        <option value="medium">標準</option>
+        <option value="low">低画質（軽い）</option>
+      </select>
+    </label>
+
+    <label class="setting-item">
       <span>接尾辞</span>
       <input
         type="text"

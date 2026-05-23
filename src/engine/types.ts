@@ -28,11 +28,12 @@ export type MosaicTrack = {
   keyframes: MosaicKeyframe[];
 };
 
+export type ExportQuality = 'highest' | 'high' | 'medium' | 'low';
+
 export type ExportSettings = {
   outputFileSuffix: string;
   videoCodec: 'avc1' | 'vp09' | 'av01' | 'auto';
-  bitrateMode: 'auto' | 'manual';
-  bitrate?: number;
+  quality: ExportQuality;
   trimStartFrames: number;
   trimEndFrames: number;
   previewScale: number;
@@ -41,7 +42,7 @@ export type ExportSettings = {
 export const defaultExportSettings: ExportSettings = {
   outputFileSuffix: '_mosaic',
   videoCodec: 'auto',
-  bitrateMode: 'auto',
+  quality: 'high',
   trimStartFrames: 0,
   trimEndFrames: 0,
   previewScale: 0.5,
