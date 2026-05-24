@@ -1,8 +1,8 @@
-# wvmTool
+﻿# wvmTool
 
-[日本語](README.md) | [English](README.en.md) | [中文](README.zh.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Français](README.fr.md)
+[日本語](../README.md) | [English](README.en.md) | [中文](README.zh.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Français](README.fr.md)
 
-![alt text](pics/top.png)
+![alt text](../pics/top.png)
 
 This is a browser-contained video mosaic editing web application.
 

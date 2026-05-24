@@ -28,7 +28,7 @@ function detectLocale(): Locale {
   const stored = localStorage.getItem(LS_KEY);
   if (stored && SUPPORTED.includes(stored)) return stored as Locale;
   const nav = navigator.language.split('-')[0];
-  return SUPPORTED.includes(nav) ? (nav as Locale) : 'en';
+  return SUPPORTED.includes(nav) ? (nav as Locale) : 'ja';
 }
 
 // 日本語を初期値に（チラつき防止）
