@@ -10,7 +10,6 @@
     <span class="badge" class:ok={cap.webgl2}>WebGL2: {cap.webgl2 ? 'OK' : '×'}</span>
     <span class="badge" class:ok={cap.offscreenCanvas}>OffscreenCanvas: {cap.offscreenCanvas ? 'OK' : '×'}</span>
     <span class="badge" class:ok={cap.worker}>Worker: {cap.worker ? 'OK' : '×'}</span>
-    <span class="badge experimental">音声保持: 実験的</span>
     {#if !cap.webCodecs || !cap.webgl2}
       <span class="badge warn">⚠ このブラウザは一部機能に非対応です</span>
     {/if}
@@ -38,12 +37,6 @@
     background: #1a2e1a;
     color: #44cc44;
     border-color: #44cc4433;
-  }
-
-  .badge.experimental {
-    background: #2a2a1a;
-    color: #ccaa44;
-    border-color: #ccaa4433;
   }
 
   .badge.warn {
