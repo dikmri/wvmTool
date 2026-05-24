@@ -4,6 +4,7 @@
   import { exportStatus, exportProgress, exportError } from '../stores/ui-store';
   import { downloadBlob, getOutputFileName } from '../../utils/file';
   import { logger } from '../../utils/logger';
+  import { t } from '../../i18n';
 
   export let videoFile: File | null = null;
 
@@ -71,17 +72,17 @@
 </script>
 
 <div class="export-panel">
-  <h3 class="panel-title">書き出し</h3>
+  <h3 class="panel-title">{$t('export.title')}</h3>
 
   <div class="settings-grid">
     <label class="setting-item">
-      <span>コーデック</span>
+      <span>{$t('export.codec.label')}</span>
       <select
         value={settings.videoCodec}
         on:change={(e) =>
           projectStore.updateExportSettings({ videoCodec: (e.target as HTMLSelectElement).value as 'auto' | 'avc1' | 'vp09' | 'av01' })}
       >
-        <option value="auto">Auto (H.264優先)</option>
+        <option value="auto">{$t('export.codec.auto')}</option>
         <option value="avc1">H.264 (AVC)</option>
         <option value="vp09">VP9</option>
         <option value="av01">AV1</option>
@@ -89,22 +90,22 @@
     </label>
 
     <label class="setting-item">
-      <span>画質</span>
+      <span>{$t('export.quality.label')}</span>
       <select
         value={settings.quality}
         on:change={(e) =>
           projectStore.updateExportSettings({ quality: (e.target as HTMLSelectElement).value as 'highest' | 'high' | 'medium' | 'low' })}
-        title="最高=元動画×1.5倍 / 高=元動画と同等 / 標準=元動画×0.65倍 / 低=元動画×0.35倍"
+        title={$t('export.quality.tip')}
       >
-        <option value="highest">最高画質（重い）</option>
-        <option value="high">高画質</option>
-        <option value="medium">標準</option>
-        <option value="low">低画質（軽い）</option>
+        <option value="highest">{$t('export.quality.highest')}</option>
+        <option value="high">{$t('export.quality.high')}</option>
+        <option value="medium">{$t('export.quality.medium')}</option>
+        <option value="low">{$t('export.quality.low')}</option>
       </select>
     </label>
 
     <label class="setting-item">
-      <span>接尾辞</span>
+      <span>{$t('export.suffix.label')}</span>
       <input
         type="text"
         value={settings.outputFileSuffix}
@@ -120,29 +121,29 @@
       on:click={status !== 'exporting' ? startExport : undefined}
       disabled={status === 'exporting' || !videoFile || tracks.length === 0}
     >
-      {status === 'exporting' ? '書き出し中...' : status === 'done' ? '✓ 再書き出し' : '書き出し開始'}
+      {status === 'exporting' ? $t('export.btn.running') : status === 'done' ? $t('export.btn.redo') : $t('export.btn.start')}
     </button>
     {#if status !== 'exporting' && !videoFile}
-      <p class="hint">動画を読み込んでください</p>
+      <p class="hint">{$t('export.hint.no_video')}</p>
     {:else if status !== 'exporting' && tracks.length === 0}
-      <p class="hint">モザイクトラックを追加してください</p>
+      <p class="hint">{$t('export.hint.no_tracks')}</p>
     {/if}
 
     <div class="progress-area" class:invisible={status !== 'exporting'}>
       <div class="progress-bar">
         <div class="progress-fill" style="width:{progressPct}%"></div>
       </div>
-      <span class="progress-text">{progressPct}% ({progress.current}/{progress.total}フレーム)</span>
-      <button class="cancel-btn" on:click={cancelExport}>キャンセル</button>
+      <span class="progress-text">{progressPct}% ({progress.current}/{progress.total} {$t('export.progress.unit')})</span>
+      <button class="cancel-btn" on:click={cancelExport}>{$t('export.btn.cancel')}</button>
     </div>
   </div>
 
   {#if status === 'error' && errMsg}
-    <div class="error-msg">エラー: {errMsg}</div>
+    <div class="error-msg">{$t('export.error.prefix')}{errMsg}</div>
   {/if}
 
   {#if status === 'cancelled'}
-    <div class="cancelled-msg">書き出しをキャンセルしました</div>
+    <div class="cancelled-msg">{$t('export.cancelled')}</div>
   {/if}
 </div>
 

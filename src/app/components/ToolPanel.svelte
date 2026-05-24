@@ -1,6 +1,7 @@
 <script lang="ts">
   import { projectStore, tracksStore, videoMetaStore } from '../stores/project-store';
   import { selectedTrackId, drawingMode } from '../stores/ui-store';
+  import { t } from '../../i18n';
   import { get } from 'svelte/store';
 
   $: tracks = $tracksStore;
@@ -31,42 +32,42 @@
 </script>
 
 <div class="tool-panel">
-  <h3 class="panel-title">ツール</h3>
+  <h3 class="panel-title">{$t('tool.title')}</h3>
 
   <div class="mode-buttons">
     <button
       class="mode-btn"
       class:active={mode === 'select'}
       on:click={() => drawingMode.set('select')}
-      title="選択モード"
+      title={$t('tool.mode.select.tip')}
     >
-      ↖ 選択
+      {$t('tool.mode.select')}
     </button>
     <button
       class="mode-btn"
       class:active={mode === 'draw'}
       on:click={() => drawingMode.set('draw')}
-      title="描画モード"
+      title={$t('tool.mode.draw.tip')}
     >
-      □ 描画
+      {$t('tool.mode.draw')}
     </button>
   </div>
 
-  <div class="section-title">モザイクトラック</div>
+  <div class="section-title">{$t('tool.mosaic.section')}</div>
 
   <div class="track-actions">
     <button
       class="action-btn add"
       on:click={addTrack}
       disabled={!hasProject}
-      title={hasProject ? 'トラックを追加' : '動画を読み込んでください'}
-    >＋ 追加</button>
+      title={hasProject ? $t('tool.track.add.tip') : $t('tool.need_video.tip')}
+    >{$t('tool.track.add')}</button>
     {#if selTrackId}
-      <button class="action-btn remove" on:click={removeSelectedTrack}>× 削除</button>
+      <button class="action-btn remove" on:click={removeSelectedTrack}>{$t('tool.track.remove')}</button>
     {/if}
   </div>
   {#if !hasProject}
-    <p class="no-video-hint">動画を読み込むとトラックを追加できます</p>
+    <p class="no-video-hint">{$t('tool.need_video.hint')}</p>
   {/if}
 
   <div class="track-list">
@@ -83,7 +84,7 @@
           class="toggle-btn"
           class:enabled={track.enabled}
           on:click|stopPropagation={() => projectStore.toggleTrack(track.id)}
-          title={track.enabled ? '無効化' : '有効化'}
+          title={track.enabled ? $t('tool.track.disable.tip') : $t('tool.track.enable.tip')}
         >
           {track.enabled ? '●' : '○'}
         </button>
@@ -94,7 +95,7 @@
       {#if track.id === selTrackId}
         <div class="track-settings">
           <div class="setting-row">
-            <span class="setting-label">モザイクサイズ</span>
+            <span class="setting-label">{$t('tool.mosaic.size')}</span>
             <div class="size-control">
               <input
                 type="range"
@@ -117,7 +118,7 @@
     {/each}
 
     {#if tracks.length === 0}
-      <div class="empty-hint">トラックを追加してください</div>
+      <div class="empty-hint">{$t('tool.no_tracks.hint')}</div>
     {/if}
   </div>
 </div>

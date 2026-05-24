@@ -1,5 +1,6 @@
 <script lang="ts">
   import { capability } from '../stores/ui-store';
+  import { t } from '../../i18n';
 
   $: cap = $capability;
 </script>
@@ -11,7 +12,7 @@
     <span class="badge" class:ok={cap.offscreenCanvas}>OffscreenCanvas: {cap.offscreenCanvas ? 'OK' : '×'}</span>
     <span class="badge" class:ok={cap.worker}>Worker: {cap.worker ? 'OK' : '×'}</span>
     {#if !cap.webCodecs || !cap.webgl2}
-      <span class="badge warn">⚠ このブラウザは一部機能に非対応です</span>
+      <span class="badge warn">{$t('cap.warn')}</span>
     {/if}
   </div>
 {/if}

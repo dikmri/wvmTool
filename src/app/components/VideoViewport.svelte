@@ -9,6 +9,7 @@
   import { WebGL2MosaicRenderer } from '../../render/webgl/gl-context';
   import { applyMosaicCanvas2D } from '../../render/canvas/canvas2d-fallback';
   import { logger } from '../../utils/logger';
+  import { t } from '../../i18n';
   import type { InterpolatedRect } from '../../engine/types';
 
   export let videoFile: File | null = null;
@@ -462,8 +463,8 @@
   {#if !videoFile}
     <div class="drop-hint">
       <div class="drop-icon">🎬</div>
-      <p>MP4動画をドラッグ&amp;ドロップ</p>
-      <p class="sub">または クリックして選択</p>
+      <p>{$t('viewport.drop')}</p>
+      <p class="sub">{$t('viewport.or_click')}</p>
       <input
         type="file"
         accept="video/mp4,video/*"

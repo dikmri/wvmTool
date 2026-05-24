@@ -4,6 +4,7 @@
   import { tracksStore, projectStore } from '../stores/project-store';
   import { selectedTrackId, selectedKeyframeId, drawingMode } from '../stores/ui-store';
   import { interpolateKeyframes } from '../../engine/keyframe-interpolator';
+  import { t } from '../../i18n';
 
   $: tracks = $tracksStore;
   $: dur = $duration;
@@ -155,16 +156,16 @@
 
 <div class="timeline">
   <div class="timeline-controls">
-    <button class="ctrl-btn" on:click={() => seekByFrame(-1)} title="1フレーム戻る">◀</button>
-    <button class="ctrl-btn play-btn" on:click={togglePlay} title="再生/停止">
+    <button class="ctrl-btn" on:click={() => seekByFrame(-1)} title={$t('timeline.prev_frame')}>◀</button>
+    <button class="ctrl-btn play-btn" on:click={togglePlay} title={$t('timeline.play_pause')}>
       {$isPlaying ? '⏸' : '▶'}
     </button>
-    <button class="ctrl-btn" on:click={() => seekByFrame(1)} title="1フレーム進む">▶</button>
+    <button class="ctrl-btn" on:click={() => seekByFrame(1)} title={$t('timeline.next_frame')}>▶</button>
     <span class="timecode">{formatTime(ct)} / {formatTime(dur)}</span>
     <span class="framecode">F{cfr} / {totalFr}</span>
-    <button class="ctrl-btn kf-btn" on:click={addKeyframe} title="キーフレーム追加 (K)">+ KF</button>
+    <button class="ctrl-btn kf-btn" on:click={addKeyframe} title={$t('timeline.kf.add')}>+ KF</button>
     {#if selKfId}
-      <button class="ctrl-btn del-btn" on:click={deleteSelectedKeyframe} title="キーフレーム削除 (Del)">- KF</button>
+      <button class="ctrl-btn del-btn" on:click={deleteSelectedKeyframe} title={$t('timeline.kf.del')}>- KF</button>
     {/if}
   </div>
 

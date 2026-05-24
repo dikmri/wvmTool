@@ -3,3 +3,4 @@ dist/
 .DS_Store
 *.local
 test/test_output.mp4
+tools/datagen.mjs
