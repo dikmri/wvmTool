@@ -133,7 +133,11 @@ async function runExport(
       renderer = new WebGL2MosaicRenderer(offscreen);
       await renderer.init(meta.width, meta.height);
       useWebGL = true;
-    } catch { logger.warn('export-worker:webgl2-unavailable', 'Canvas2D フォールバックを使用'); }
+      logger.info('export-worker:renderer', { mode: 'webgl2' });
+    } catch (e) {
+      logger.warn('export-worker:webgl2-unavailable', String(e));
+      logger.info('export-worker:renderer', { mode: 'canvas2d' });
+    }
 
     // ── 状態変数 ──────────────────────────────────────────────────────────────
     const target = new ArrayBufferTarget();
@@ -174,7 +178,6 @@ async function runExport(
               duration: Math.round(frameDuration * 1_000_000),
             });
             const isKey = frameIndex % Math.round(detectedFps * 2) === 0;
-
             encoder!.encode(outputFrame, { keyFrame: isKey });
 
             outputFrame.close();
@@ -192,9 +195,9 @@ async function runExport(
     const decoder = new VideoDecoder({
       output: (frame: VideoFrame) => {
         frameQueue.push({ frame, timestamp: frame.timestamp / 1_000_000 });
-        drainFrameQueue().catch((e) => logger.error('export-worker:drain-error', e));
+        drainFrameQueue().catch((e) => logger.error('export-worker:drain-error', String(e)));
       },
-      error: (e: Error) => logger.error('export-worker:decoder-error', e),
+      error: (e: Error) => logger.error('export-worker:decoder-error', String(e)),
     });
 
     // ── mp4box デマックス ─────────────────────────────────────────────────────
@@ -237,6 +240,8 @@ async function runExport(
         if (aTrack) audioDescription = extractAudioSpecificConfig(mp4file, aTrack.id);
 
         // ── Muxer 作成 ────────────────────────────────────────────────────────
+        // firstTimestampBehavior: 'offset' — B フレームのある動画では最初の PTS が 0 でない
+        // 場合があるため、最初のタイムスタンプを基準に全体をオフセットして先頭を 0 に揃える
         muxer = new Muxer({
           target,
           video: { codec: muxerCodec, width: meta.width, height: meta.height },
@@ -248,6 +253,7 @@ async function runExport(
             },
           } : {}),
           fastStart: 'in-memory',
+          firstTimestampBehavior: 'offset',
         });
 
         // ── エンコーダー設定 ──────────────────────────────────────────────────
@@ -308,7 +314,7 @@ async function runExport(
         id: number,
         _ref: unknown,
         samples: Array<{
-          data: Uint8Array; dts: number; duration: number;
+          data: Uint8Array; dts: number; cts?: number; duration: number;
           is_sync: boolean; timescale: number; number?: number;
         }>,
       ) => {
@@ -316,10 +322,12 @@ async function runExport(
         if (id === audioTrackId) {
           const firstMeta = (mp4file as unknown as { _audioFirstMeta?: EncodedAudioChunkMetadata })._audioFirstMeta;
           samples.forEach((sample, i) => {
+            // mp4box の sample.cts は PTS そのもの（video と同様）
+            const pts = sample.cts ?? sample.dts;
             pendingAudioChunks.push({
               chunk: new EncodedAudioChunk({
                 type: 'key',
-                timestamp: (sample.dts / sample.timescale) * 1_000_000,
+                timestamp: (pts / sample.timescale) * 1_000_000,
                 duration: (sample.duration / sample.timescale) * 1_000_000,
                 data: sample.data,
               }),
@@ -336,9 +344,13 @@ async function runExport(
 
         for (const sample of samples) {
           if (cancelled) break;
+          // mp4box の sample.cts は PTS（表示タイムスタンプ）そのもの。
+          // B フレームのある動画では dts ≠ pts になる。
+          // VideoDecoder は表示順で出力するため PTS をタイムスタンプとして渡す。
+          const pts = sample.cts ?? sample.dts;
           decoder.decode(new EncodedVideoChunk({
             type: sample.is_sync ? 'key' : 'delta',
-            timestamp: (sample.dts / sample.timescale) * 1_000_000,
+            timestamp: (pts / sample.timescale) * 1_000_000,
             duration: (sample.duration / sample.timescale) * 1_000_000,
             data: sample.data,
           }));
