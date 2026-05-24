@@ -5,7 +5,6 @@
   import { projectStore, tracksStore } from '../stores/project-store';
   import { selectedTrackId, drawingMode } from '../stores/ui-store';
   import { interpolateKeyframes } from '../../engine/keyframe-interpolator';
-  import { clamp } from '../../engine/coordinate';
   import { WebGL2MosaicRenderer } from '../../render/webgl/gl-context';
   import { applyMosaicCanvas2D } from '../../render/canvas/canvas2d-fallback';
   import { logger } from '../../utils/logger';
@@ -24,8 +23,12 @@
 
   let nativeWidth = 0;
   let nativeHeight = 0;
-  let displayWidth = 0;
-  let displayHeight = 0;
+  let baseDisplayWidth = 0;
+  let baseDisplayHeight = 0;
+  let zoom = 1.0;
+
+  $: displayWidth = Math.round(baseDisplayWidth * zoom);
+  $: displayHeight = Math.round(baseDisplayHeight * zoom);
 
   // Rect drawing state
   let isDrawingNew = false;
@@ -59,6 +62,7 @@
   $: if (videoFile) loadVideo(videoFile);
 
   async function loadVideo(file: File) {
+    zoom = 1.0;
     glReady = false;
     cancelAnimationFrame(raf);
     glRenderer?.dispose();
@@ -95,12 +99,18 @@
     const maxH = containerEl.clientHeight;
     const ratio = nativeWidth / nativeHeight;
     if (maxW / ratio <= maxH) {
-      displayWidth = maxW;
-      displayHeight = maxW / ratio;
+      baseDisplayWidth = maxW;
+      baseDisplayHeight = maxW / ratio;
     } else {
-      displayHeight = maxH;
-      displayWidth = maxH * ratio;
+      baseDisplayHeight = maxH;
+      baseDisplayWidth = maxH * ratio;
     }
+  }
+
+  function onWheel(e: WheelEvent) {
+    if (nativeWidth === 0) return;
+    const factor = e.deltaY < 0 ? 1.1 : 0.9;
+    zoom = Math.max(0.1, Math.min(10, zoom * factor));
   }
 
   async function initGL() {
@@ -300,8 +310,8 @@
   function getCanvasPos(e: MouseEvent): { x: number; y: number } {
     const rect = overlayCanvas.getBoundingClientRect();
     return {
-      x: clamp(e.clientX - rect.left, 0, displayWidth),
-      y: clamp(e.clientY - rect.top, 0, displayHeight),
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
     };
   }
 
@@ -313,6 +323,16 @@
   }
 
   // ── mouse handlers ─────────────────────────────────────────────────────────
+
+  function onWindowMouseMove(e: MouseEvent) {
+    if (!isDrawingNew && !isDraggingHandle && !isDraggingRect) return;
+    onMouseMove(e);
+  }
+
+  function onWindowMouseUp(e: MouseEvent) {
+    if (!isDrawingNew && !isDraggingHandle && !isDraggingRect) return;
+    onMouseUp(e);
+  }
 
   function onMouseDown(e: MouseEvent) {
     const pos = getCanvasPos(e);
@@ -401,8 +421,8 @@
       const scaleX = nativeWidth / displayWidth;
       const scaleY = nativeHeight / displayHeight;
       const t = get(currentTime);
-      const newX = clamp(dragInitialRect.x + dx * scaleX, 0, nativeWidth - dragInitialRect.width);
-      const newY = clamp(dragInitialRect.y + dy * scaleY, 0, nativeHeight - dragInitialRect.height);
+      const newX = dragInitialRect.x + dx * scaleX;
+      const newY = dragInitialRect.y + dy * scaleY;
       projectStore.addKeyframe(
         dragTrackId, t, newX, newY,
         dragInitialRect.width, dragInitialRect.height, dragInitialRect.rotation,
@@ -452,11 +472,21 @@
   });
 </script>
 
+<svelte:window
+  on:keydown={(e) => {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    if (e.code === 'KeyN' && nativeWidth > 0) { e.preventDefault(); zoom = 1.0; }
+  }}
+  on:mousemove={onWindowMouseMove}
+  on:mouseup={onWindowMouseUp}
+/>
+
 <div
   class="viewport-container"
   bind:this={containerEl}
   on:dragover|preventDefault
   on:drop={onDrop}
+  on:wheel|preventDefault={onWheel}
   role="region"
   aria-label="Video viewport"
 >
@@ -512,9 +542,6 @@
       width={displayWidth}
       height={displayHeight}
       on:mousedown={onMouseDown}
-      on:mousemove={onMouseMove}
-      on:mouseup={onMouseUp}
-      on:mouseleave={onMouseUp}
     ></canvas>
   </div>
 </div>

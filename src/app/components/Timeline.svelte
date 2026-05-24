@@ -143,14 +143,13 @@
   on:keydown={(e) => {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
-    if (e.code === 'ArrowLeft') { e.preventDefault(); seekByFrame(-1); }
-    if (e.code === 'ArrowRight') { e.preventDefault(); seekByFrame(1); }
+    if (e.code === 'ArrowLeft') { e.preventDefault(); e.shiftKey ? seek(0) : seekByFrame(-1); }
+    if (e.code === 'ArrowRight') { e.preventDefault(); e.shiftKey ? seek(get(duration)) : seekByFrame(1); }
     if (e.code === 'KeyK') { e.preventDefault(); addKeyframe(); }
     if (e.code === 'Delete') { e.preventDefault(); deleteSelectedKeyframe(); }
     if (e.code === 'KeyQ' || e.code === 'KeyE' || e.code === 'KeyR') { e.preventDefault(); rotateSelectedTrack(e.code); }
     if (e.code === 'KeyH') { e.preventDefault(); toggleMosaicVisibility(); }
-    if (e.code === 'KeyI') { e.preventDefault(); drawingMode.set('select'); }
-    if (e.code === 'KeyN') { e.preventDefault(); addNewTrack(); }
+    if (e.code === 'KeyI') { e.preventDefault(); addNewTrack(); }
   }}
 />
 

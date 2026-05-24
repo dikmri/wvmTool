@@ -35,6 +35,7 @@
     <span class="version">v{version}</span>
     <CapabilityBadge />
     <div class="header-spacer"></div>
+    <a class="kofi-btn" href="https://ko-fi.com/dikmri" target="_blank" rel="noopener noreferrer">☕ Support</a>
     <select
       class="lang-sel"
       value={$locale}
@@ -91,6 +92,7 @@
           <tbody>
             <tr><td><kbd>Space</kbd></td><td>{$t('help.key.space')}</td></tr>
             <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>{$t('help.key.lr')}</td></tr>
+            <tr><td><kbd>Shift</kbd>+<kbd>←</kbd> / <kbd>→</kbd></td><td>{$t('help.key.shift_lr')}</td></tr>
             <tr><td><kbd>K</kbd></td><td>{$t('help.key.k')}</td></tr>
             <tr><td><kbd>Delete</kbd></td><td>{$t('help.key.del')}</td></tr>
             <tr><td><kbd>Q</kbd> / <kbd>E</kbd></td><td>{$t('help.key.qe')}</td></tr>
@@ -98,6 +100,7 @@
             <tr><td><kbd>H</kbd></td><td>{$t('help.key.h')}</td></tr>
             <tr><td><kbd>I</kbd></td><td>{$t('help.key.i')}</td></tr>
             <tr><td><kbd>N</kbd></td><td>{$t('help.key.n')}</td></tr>
+            <tr><td>{$t('help.key.wheel.key')}</td><td>{$t('help.key.wheel')}</td></tr>
             <tr><td><kbd>Esc</kbd></td><td>{$t('help.key.esc')}</td></tr>
           </tbody>
         </table>
@@ -163,6 +166,23 @@
   }
 
   .header-spacer { flex: 1; }
+
+  .kofi-btn {
+    background: #1a4433;
+    border: 1px solid #00cc66;
+    color: #00ff88;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    line-height: 1;
+    transition: background 0.15s;
+  }
+
+  .kofi-btn:hover { background: #225544; }
 
   .lang-sel {
     background: #2a2a2a;
