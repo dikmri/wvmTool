@@ -94,7 +94,7 @@
         value={settings.quality}
         on:change={(e) =>
           projectStore.updateExportSettings({ quality: (e.target as HTMLSelectElement).value as 'highest' | 'high' | 'medium' | 'low' })}
-        title="最高=quantizer16 / 高=22 / 標準=28 / 低=35（値が低いほど高画質）"
+        title="最高=元動画×1.5倍 / 高=元動画と同等 / 標準=元動画×0.65倍 / 低=元動画×0.35倍"
       >
         <option value="highest">最高画質（重い）</option>
         <option value="high">高画質</option>

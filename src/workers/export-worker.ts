@@ -24,15 +24,20 @@ function postProgress(current: number, total: number): void {
   self.postMessage({ type: 'progress', current, total } as ExportWorkerResponse);
 }
 
-/**
- * 画質プリセット → ターゲットビットレート（bps）
- * ハードウェアエンコーダーの quantizer 実装差異を避け、高ビットレート VBR で品質を担保する
- */
-const QUALITY_TO_BITRATE: Record<string, number> = {
-  highest: 50_000_000,
-  high:    25_000_000,
-  medium:  12_000_000,
-  low:      6_000_000,
+/** 品質プリセット → 元動画ビットレートへの乗数 */
+const QUALITY_MULTIPLIER: Record<string, number> = {
+  highest: 1.5,
+  high:    1.0,
+  medium:  0.65,
+  low:     0.35,
+};
+
+/** 元動画のビットレートが不明な場合のフォールバック：ピクセル数 × fps × bpp */
+const QUALITY_BPP: Record<string, number> = {
+  highest: 0.15,
+  high:    0.10,
+  medium:  0.065,
+  low:     0.035,
 };
 
 /**
@@ -119,11 +124,8 @@ async function runExport(
     if (settings.videoCodec === 'vp09') { encoderCodec = 'vp09.00.51.08'; muxerCodec = 'vp9'; }
     else if (settings.videoCodec === 'av01') { encoderCodec = 'av01.0.13M.08'; muxerCodec = 'av1'; }
 
-    // ── 画質設定 ──────────────────────────────────────────────────────────────
-    // bitrateMode:'quantizer' はハードウェアエンコーダー実装により動作が不安定なため、
-    // 高ビットレート VBR を使用して画質を担保する。
-    const targetBitrate = QUALITY_TO_BITRATE[settings.quality] ?? 25_000_000;
-    logger.info('export-worker:quality-config', { quality: settings.quality, bitrate: targetBitrate, codec: muxerCodec });
+    // targetBitrate は onReady 内で元動画のビットレートを読み取ってから確定する
+    let targetBitrate = 0;
 
     // ── レンダラー ────────────────────────────────────────────────────────────
     let renderer: WebGL2MosaicRenderer | null = null;
@@ -230,6 +232,24 @@ async function runExport(
           if (computed > 1 && computed < 300) {
             detectedFps = Math.round(computed * 100) / 100;
           }
+        }
+        // ── ターゲットビットレートを元動画から計算 ────────────────────────────
+        // 元動画のビットレートが取れた場合は品質乗数を掛ける。
+        // 取れない場合はピクセル数×fps×bpp のフォールバック値を使う。
+        {
+          const sourceBitrate = vTrack.bitrate ?? 0;
+          const multiplier = QUALITY_MULTIPLIER[settings.quality] ?? 1.0;
+          const bpp = QUALITY_BPP[settings.quality] ?? 0.10;
+          if (sourceBitrate > 0) {
+            targetBitrate = Math.round(sourceBitrate * multiplier);
+          } else {
+            targetBitrate = Math.round(meta.width * meta.height * detectedFps * bpp);
+          }
+          // 500kbps〜100Mbps にクランプ
+          targetBitrate = Math.max(500_000, Math.min(100_000_000, targetBitrate));
+          logger.info('export-worker:quality-config', {
+            quality: settings.quality, sourceBitrate, targetBitrate, codec: muxerCodec,
+          });
         }
         logger.info('export-worker:detected-fps', { detectedFps, totalFrames });
 

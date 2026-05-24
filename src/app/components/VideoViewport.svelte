@@ -422,6 +422,7 @@
         const scaleY = nativeHeight / displayHeight;
         const t = get(currentTime);
         projectStore.addKeyframe(selTrackId, t, rx * scaleX, ry * scaleY, rw * scaleX, rh * scaleY, 0);
+        drawingMode.set('select');
       }
       isDrawingNew = false;
       return;
