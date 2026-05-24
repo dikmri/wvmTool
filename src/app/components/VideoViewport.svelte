@@ -26,9 +26,15 @@
   let baseDisplayWidth = 0;
   let baseDisplayHeight = 0;
   let zoom = 1.0;
+  let containerWidth = 0;
+  let containerHeight = 0;
+  let panOffsetX = 0;
+  let panOffsetY = 0;
 
   $: displayWidth = Math.round(baseDisplayWidth * zoom);
   $: displayHeight = Math.round(baseDisplayHeight * zoom);
+  $: videoOffsetX = containerWidth > 0 ? (containerWidth - displayWidth) / 2 + panOffsetX : panOffsetX;
+  $: videoOffsetY = containerHeight > 0 ? (containerHeight - displayHeight) / 2 + panOffsetY : panOffsetY;
 
   // Rect drawing state
   let isDrawingNew = false;
@@ -51,6 +57,13 @@
   let handleTrackId = '';
   let handleInitialRect = { x: 0, y: 0, width: 0, height: 0, rotation: 0 };
 
+  // Pan state (middle button drag)
+  let isPanning = false;
+  let panStartClientX = 0;
+  let panStartClientY = 0;
+  let panBaseX = 0;
+  let panBaseY = 0;
+
   let glReady = false;
   let glFailed = false;
   let fallbackCanvas: HTMLCanvasElement;
@@ -63,6 +76,8 @@
 
   async function loadVideo(file: File) {
     zoom = 1.0;
+    panOffsetX = 0;
+    panOffsetY = 0;
     glReady = false;
     cancelAnimationFrame(raf);
     glRenderer?.dispose();
@@ -95,15 +110,15 @@
 
   function updateDisplaySize() {
     if (!containerEl || nativeWidth === 0 || nativeHeight === 0) return;
-    const maxW = containerEl.clientWidth;
-    const maxH = containerEl.clientHeight;
+    containerWidth = containerEl.clientWidth;
+    containerHeight = containerEl.clientHeight;
     const ratio = nativeWidth / nativeHeight;
-    if (maxW / ratio <= maxH) {
-      baseDisplayWidth = maxW;
-      baseDisplayHeight = maxW / ratio;
+    if (containerWidth / ratio <= containerHeight) {
+      baseDisplayWidth = containerWidth;
+      baseDisplayHeight = containerWidth / ratio;
     } else {
-      baseDisplayHeight = maxH;
-      baseDisplayWidth = maxH * ratio;
+      baseDisplayHeight = containerHeight;
+      baseDisplayWidth = containerHeight * ratio;
     }
   }
 
@@ -178,8 +193,10 @@
     rect: InterpolatedRect,
     sX: number,
     sY: number,
+    offX: number,
+    offY: number,
   ): 'tl' | 'tr' | 'bl' | 'br' | null {
-    const dx = rect.x * sX, dy = rect.y * sY;
+    const dx = offX + rect.x * sX, dy = offY + rect.y * sY;
     const dw = rect.width * sX, dh = rect.height * sY;
     const rot = (rect.rotation ?? 0) * Math.PI / 180;
     const corners = getCorners(dx + dw / 2, dy + dh / 2, dw / 2, dh / 2, rot);
@@ -205,7 +222,6 @@
     const hw = initRect.width / 2;
     const hh = initRect.height / 2;
 
-    // Local coords of the OPPOSITE corner
     const oppLocal = {
       tl: { x:  hw, y:  hh },
       tr: { x: -hw, y:  hh },
@@ -213,15 +229,12 @@
       br: { x: -hw, y: -hh },
     }[handleType];
 
-    // Opposite corner in native coords (stays fixed during drag)
     const oppX = cx + oppLocal.x * cosθ - oppLocal.y * sinθ;
     const oppY = cy + oppLocal.x * sinθ + oppLocal.y * cosθ;
 
-    // New center
     const newCx = (mx + oppX) / 2;
     const newCy = (my + oppY) / 2;
 
-    // Diagonal from opposite corner to new handle position, projected into local frame
     const diagX = mx - oppX;
     const diagY = my - oppY;
     const localDX = diagX * cosθ + diagY * sinθ;
@@ -239,9 +252,8 @@
     if (!overlayCanvas || displayWidth === 0 || displayHeight === 0) return;
     const ctx = overlayCanvas.getContext('2d');
     if (!ctx) return;
-    ctx.clearRect(0, 0, displayWidth, displayHeight);
+    ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
-    // During playback, hide overlay so user sees pure mosaic
     if (get(isPlaying)) return;
 
     const scaleX = displayWidth / nativeWidth;
@@ -252,8 +264,8 @@
       const rect = interpolateKeyframes(track.keyframes, time);
       if (!rect) continue;
 
-      const dx = rect.x * scaleX;
-      const dy = rect.y * scaleY;
+      const dx = videoOffsetX + rect.x * scaleX;
+      const dy = videoOffsetY + rect.y * scaleY;
       const dw = rect.width * scaleX;
       const dh = rect.height * scaleY;
       const rot = (rect.rotation ?? 0) * Math.PI / 180;
@@ -273,7 +285,6 @@
       ctx.fillRect(-dw / 2, -dh / 2, dw, dh);
       ctx.restore();
 
-      // Corner handles on selected track only
       if (isSel) {
         const corners = getCorners(dx + dw / 2, dy + dh / 2, dw / 2, dh / 2, rot);
         ctx.save();
@@ -291,7 +302,6 @@
       }
     }
 
-    // Draw-in-progress preview rect
     if (isDrawingNew && mode === 'draw') {
       const x = Math.min(dragStartX, dragCurrentX);
       const y = Math.min(dragStartY, dragCurrentY);
@@ -317,38 +327,81 @@
 
   function toNative(px: number, py: number) {
     return {
-      x: px * (nativeWidth / displayWidth),
-      y: py * (nativeHeight / displayHeight),
+      x: (px - videoOffsetX) * (nativeWidth / displayWidth),
+      y: (py - videoOffsetY) * (nativeHeight / displayHeight),
     };
   }
 
   // ── mouse handlers ─────────────────────────────────────────────────────────
 
   function onWindowMouseMove(e: MouseEvent) {
+    if (isPanning) {
+      panOffsetX = panBaseX + (e.clientX - panStartClientX);
+      panOffsetY = panBaseY + (e.clientY - panStartClientY);
+      return;
+    }
     if (!isDrawingNew && !isDraggingHandle && !isDraggingRect) return;
     onMouseMove(e);
   }
 
   function onWindowMouseUp(e: MouseEvent) {
+    if (isPanning) {
+      isPanning = false;
+      return;
+    }
     if (!isDrawingNew && !isDraggingHandle && !isDraggingRect) return;
     onMouseUp(e);
   }
 
   function onMouseDown(e: MouseEvent) {
+    if (!overlayCanvas || nativeWidth === 0) return;
+
+    // Middle button: pan
+    if (e.button === 1) {
+      isPanning = true;
+      panStartClientX = e.clientX;
+      panStartClientY = e.clientY;
+      panBaseX = panOffsetX;
+      panBaseY = panOffsetY;
+      e.preventDefault();
+      return;
+    }
+    if (e.button !== 0) return;
+
     const pos = getCanvasPos(e);
+
+    // Auto-create first track when none exist
+    if (get(tracksStore).length === 0) {
+      const project = get({ subscribe: projectStore.subscribe });
+      if (project) {
+        projectStore.addTrack();
+        const updated = get({ subscribe: projectStore.subscribe });
+        if (updated?.tracks.length > 0) {
+          const newId = updated.tracks[updated.tracks.length - 1].id;
+          selectedTrackId.set(newId);
+          drawingMode.set('draw');
+          isDrawingNew = true;
+          dragStartX = pos.x;
+          dragStartY = pos.y;
+          dragCurrentX = pos.x;
+          dragCurrentY = pos.y;
+          return;
+        }
+      }
+    }
+
     const scaleX = displayWidth / nativeWidth;
     const scaleY = displayHeight / nativeHeight;
     const t = get(currentTime);
 
-    // 1. Check corner handles on the selected track first
-    if (selTrackId && nativeWidth > 0) {
+    // 1. Corner handle hit-test on selected track
+    if (selTrackId) {
       const selTrack = tracks.find((tr) => tr.id === selTrackId);
       if (selTrack) {
         const rect = interpolateKeyframes(selTrack.keyframes, t);
         if (rect) {
-          const handle = hitTestHandle(pos, rect, scaleX, scaleY);
+          const handle = hitTestHandle(pos, rect, scaleX, scaleY, videoOffsetX, videoOffsetY);
           if (handle) {
-            const n = toNative(pos.x, pos.y);
             isDraggingHandle = true;
             dragHandleType = handle;
             handleTrackId = selTrackId;
@@ -369,14 +422,14 @@
       return;
     }
 
-    // 3. Select mode — hit-test existing rects for moving
-    if (mode === 'select' && nativeWidth > 0) {
+    // 3. Select mode — hit-test existing rects
+    if (mode === 'select') {
       for (const track of [...tracks].reverse()) {
         if (!track.enabled) continue;
         const rect = interpolateKeyframes(track.keyframes, t);
         if (!rect) continue;
-        const dx = rect.x * scaleX;
-        const dy = rect.y * scaleY;
+        const dx = videoOffsetX + rect.x * scaleX;
+        const dy = videoOffsetY + rect.y * scaleY;
         const dw = rect.width * scaleX;
         const dh = rect.height * scaleY;
         const rot = (rect.rotation ?? 0) * Math.PI / 180;
@@ -399,6 +452,7 @@
   }
 
   function onMouseMove(e: MouseEvent) {
+    if (!overlayCanvas) return;
     const pos = getCanvasPos(e);
 
     if (isDrawingNew) {
@@ -418,11 +472,9 @@
     if (isDraggingRect && nativeWidth > 0) {
       const dx = pos.x - dragMoveStartX;
       const dy = pos.y - dragMoveStartY;
-      const scaleX = nativeWidth / displayWidth;
-      const scaleY = nativeHeight / displayHeight;
       const t = get(currentTime);
-      const newX = dragInitialRect.x + dx * scaleX;
-      const newY = dragInitialRect.y + dy * scaleY;
+      const newX = dragInitialRect.x + dx * (nativeWidth / displayWidth);
+      const newY = dragInitialRect.y + dy * (nativeHeight / displayHeight);
       projectStore.addKeyframe(
         dragTrackId, t, newX, newY,
         dragInitialRect.width, dragInitialRect.height, dragInitialRect.rotation,
@@ -431,18 +483,20 @@
   }
 
   function onMouseUp(e: MouseEvent) {
+    if (!overlayCanvas) return;
     const pos = getCanvasPos(e);
+    const trackId = get(selectedTrackId);
 
-    if (isDrawingNew && selTrackId && nativeWidth > 0) {
+    if (isDrawingNew && trackId && nativeWidth > 0) {
       const rx = Math.min(dragStartX, pos.x);
       const ry = Math.min(dragStartY, pos.y);
       const rw = Math.abs(pos.x - dragStartX);
       const rh = Math.abs(pos.y - dragStartY);
       if (rw > 5 && rh > 5) {
-        const scaleX = nativeWidth / displayWidth;
-        const scaleY = nativeHeight / displayHeight;
+        const n = toNative(rx, ry);
         const t = get(currentTime);
-        projectStore.addKeyframe(selTrackId, t, rx * scaleX, ry * scaleY, rw * scaleX, rh * scaleY, 0);
+        projectStore.addKeyframe(trackId, t, n.x, n.y,
+          rw * (nativeWidth / displayWidth), rh * (nativeHeight / displayHeight), 0);
         drawingMode.set('select');
       }
       isDrawingNew = false;
@@ -460,8 +514,18 @@
   }
 
   onMount(() => {
-    const ro = new ResizeObserver(() => updateDisplaySize());
-    if (containerEl) ro.observe(containerEl);
+    const ro = new ResizeObserver(() => {
+      if (containerEl) {
+        containerWidth = containerEl.clientWidth;
+        containerHeight = containerEl.clientHeight;
+      }
+      updateDisplaySize();
+    });
+    if (containerEl) {
+      containerWidth = containerEl.clientWidth;
+      containerHeight = containerEl.clientHeight;
+      ro.observe(containerEl);
+    }
     return () => ro.disconnect();
   });
 
@@ -475,7 +539,7 @@
 <svelte:window
   on:keydown={(e) => {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-    if (e.code === 'KeyN' && nativeWidth > 0) { e.preventDefault(); zoom = 1.0; }
+    if (e.code === 'KeyN' && nativeWidth > 0) { e.preventDefault(); zoom = 1.0; panOffsetX = 0; panOffsetY = 0; }
   }}
   on:mousemove={onWindowMouseMove}
   on:mouseup={onWindowMouseUp}
@@ -483,6 +547,7 @@
 
 <div
   class="viewport-container"
+  class:panning={isPanning}
   bind:this={containerEl}
   on:dragover|preventDefault
   on:drop={onDrop}
@@ -509,7 +574,7 @@
 
   <div
     class="video-wrapper"
-    style="width:{displayWidth}px;height:{displayHeight}px"
+    style="width:{displayWidth}px;height:{displayHeight}px;transform:translate({panOffsetX}px,{panOffsetY}px)"
   >
     <!-- svelte-ignore a11y-media-has-caption -->
     <video
@@ -536,14 +601,17 @@
         style="width:{displayWidth}px;height:{displayHeight}px"
       ></canvas>
     {/if}
-    <canvas
-      bind:this={overlayCanvas}
-      class="overlay-canvas"
-      width={displayWidth}
-      height={displayHeight}
-      on:mousedown={onMouseDown}
-    ></canvas>
   </div>
+
+  <!-- overlay canvas covers the full container so rects outside video area are visible/interactive -->
+  <canvas
+    bind:this={overlayCanvas}
+    class="overlay-canvas"
+    width={containerWidth || 1}
+    height={containerHeight || 1}
+    style="pointer-events:{nativeWidth > 0 ? 'auto' : 'none'}"
+    on:mousedown={onMouseDown}
+  ></canvas>
 </div>
 
 <style>
@@ -557,6 +625,8 @@
     justify-content: center;
     overflow: hidden;
   }
+
+  .viewport-container.panning { cursor: grabbing; }
 
   .drop-hint {
     position: absolute;
@@ -607,5 +677,6 @@
     position: absolute;
     inset: 0;
     cursor: crosshair;
+    z-index: 5;
   }
 </style>

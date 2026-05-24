@@ -14,6 +14,7 @@
 
   let videoFile: File | null = null;
   let showHelp = false;
+  let showKofi = false;
   const version = packageJson.version;
 
   onMount(async () => {
@@ -35,7 +36,26 @@
     <span class="version">v{version}</span>
     <CapabilityBadge />
     <div class="header-spacer"></div>
-    <a class="kofi-btn" href="https://ko-fi.com/dikmri" target="_blank" rel="noopener noreferrer">☕ Support</a>
+    <div class="kofi-wrap">
+      <button class="kofi-btn" on:click={() => showKofi = !showKofi}>☕ Support</button>
+      {#if showKofi}
+        <div
+          class="kofi-backdrop"
+          on:click={() => showKofi = false}
+          on:keydown={(e) => e.code === 'Escape' && (showKofi = false)}
+          role="presentation"
+        ></div>
+        <div class="kofi-popup">
+          <iframe
+            src="https://ko-fi.com/dikmri/?hidefeed=true&widget=true&embed=true&preview=true"
+            title="Ko-fi"
+            width="300"
+            height="450"
+            style="border:none;border-radius:8px;display:block"
+          ></iframe>
+        </div>
+      {/if}
+    </div>
     <select
       class="lang-sel"
       value={$locale}
@@ -167,6 +187,10 @@
 
   .header-spacer { flex: 1; }
 
+  .kofi-wrap {
+    position: relative;
+  }
+
   .kofi-btn {
     background: #1a4433;
     border: 1px solid #00cc66;
@@ -175,7 +199,7 @@
     border-radius: 4px;
     font-size: 12px;
     white-space: nowrap;
-    text-decoration: none;
+    cursor: pointer;
     display: inline-flex;
     align-items: center;
     line-height: 1;
@@ -183,6 +207,24 @@
   }
 
   .kofi-btn:hover { background: #225544; }
+
+  .kofi-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+  }
+
+  .kofi-popup {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 1000;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
 
   .lang-sel {
     background: #2a2a2a;
