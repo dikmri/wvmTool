@@ -1,6 +1,6 @@
 <script lang="ts">
   import { get } from 'svelte/store';
-  import { currentTime, duration, fps, isPlaying, totalFrames, currentFrame, videoElement, trimStartTime, trimEndTime } from '../stores/playback-store';
+  import { currentTime, duration, fps, isPlaying, totalFrames, currentFrame, videoElement, trimStartTime, trimEndTime, loopPlayback } from '../stores/playback-store';
   import { tracksStore, projectStore } from '../stores/project-store';
   import { selectedTrackId, selectedKeyframeId, drawingMode } from '../stores/ui-store';
   import { interpolateKeyframes } from '../../engine/keyframe-interpolator';
@@ -181,6 +181,7 @@
     if (e.code === 'KeyQ' || e.code === 'KeyE' || e.code === 'KeyR') { e.preventDefault(); rotateSelectedTrack(e.code); }
     if (e.code === 'KeyH') { e.preventDefault(); toggleMosaicVisibility(); }
     if (e.code === 'KeyI') { e.preventDefault(); addNewTrack(); }
+    if (e.code === 'KeyL') { e.preventDefault(); loopPlayback.update((v) => !v); }
   }}
 />
 
@@ -193,6 +194,12 @@
     <button class="ctrl-btn" on:click={() => seekByFrame(1)} title={$t('timeline.next_frame')}>▶</button>
     <span class="timecode">{formatTime(ct)} / {formatTime(dur)}</span>
     <span class="framecode">F{cfr} / {totalFr}</span>
+    <button
+      class="ctrl-btn loop-btn"
+      class:active={$loopPlayback}
+      on:click={() => loopPlayback.update((v) => !v)}
+      title={$t('timeline.loop.tip')}
+    >↺</button>
     <button class="ctrl-btn kf-btn" on:click={addKeyframe} title={$t('timeline.kf.add')}>+ KF</button>
     {#if selKfId}
       <button class="ctrl-btn del-btn" on:click={deleteSelectedKeyframe} title={$t('timeline.kf.del')}>- KF</button>
@@ -324,6 +331,8 @@
 
   .kf-btn { color: #00cc66; border-color: #00cc6644; }
   .del-btn { color: #ff4444; border-color: #ff444444; }
+  .loop-btn { color: #666; }
+  .loop-btn.active { color: #00ff88; border-color: #00cc6644; }
 
   .timecode, .framecode {
     font-family: monospace;

@@ -43,6 +43,7 @@
   "timeline.play_pause": "再生/停止",
   "timeline.kf.add": "キーフレーム追加 (K)",
   "timeline.kf.del": "キーフレーム削除 (Del)",
+  "timeline.loop.tip": "ループ再生 (L)",
 
   "cap.warn": "⚠ このブラウザは一部機能に非対応です",
 

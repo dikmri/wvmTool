@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
-  import { currentTime, isPlaying, duration, fps, videoElement, trimStartTime, trimEndTime } from '../stores/playback-store';
+  import { currentTime, isPlaying, duration, fps, videoElement, trimStartTime, trimEndTime, loopPlayback } from '../stores/playback-store';
   import { projectStore, tracksStore } from '../stores/project-store';
   import { selectedTrackId, drawingMode } from '../stores/ui-store';
   import { interpolateKeyframes } from '../../engine/keyframe-interpolator';
@@ -155,9 +155,13 @@
         if (!videoEl.paused) {
           const trimEnd = get(trimEndTime);
           if (t >= trimEnd) {
-            videoEl.pause();
-            videoEl.currentTime = trimEnd;
-            isPlaying.set(false);
+            if (get(loopPlayback)) {
+              videoEl.currentTime = get(trimStartTime);
+            } else {
+              videoEl.pause();
+              videoEl.currentTime = trimEnd;
+              isPlaying.set(false);
+            }
           }
         }
         currentTime.set(t);
