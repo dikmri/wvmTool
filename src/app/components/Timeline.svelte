@@ -24,7 +24,7 @@
   function seek(time: number) {
     const vid = get(videoElement);
     if (!vid) return;
-    vid.currentTime = Math.max(0, Math.min(time, get(duration)));
+    vid.currentTime = Math.max(get(trimStartTime), Math.min(time, get(trimEndTime)));
     currentTime.set(vid.currentTime);
   }
 
@@ -103,11 +103,17 @@
     const time = ratio * get(duration);
 
     if (isDraggingTrimStart) {
-      trimStartTime.set(Math.min(time, get(trimEndTime) - 1 / get(fps)));
+      const newStart = Math.min(time, get(trimEndTime) - 1 / get(fps));
+      trimStartTime.set(newStart);
+      const vid = get(videoElement);
+      if (vid && vid.currentTime < newStart) seek(newStart);
       return;
     }
     if (isDraggingTrimEnd) {
-      trimEndTime.set(Math.max(time, get(trimStartTime) + 1 / get(fps)));
+      const newEnd = Math.max(time, get(trimStartTime) + 1 / get(fps));
+      trimEndTime.set(newEnd);
+      const vid = get(videoElement);
+      if (vid && vid.currentTime > newEnd) seek(newEnd);
       return;
     }
     if (!isDraggingScrubber) return;
@@ -174,8 +180,8 @@
   on:keydown={(e) => {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
-    if (e.code === 'ArrowLeft') { e.preventDefault(); e.shiftKey ? seek(0) : seekByFrame(-1); }
-    if (e.code === 'ArrowRight') { e.preventDefault(); e.shiftKey ? seek(get(duration)) : seekByFrame(1); }
+    if (e.code === 'ArrowLeft') { e.preventDefault(); e.shiftKey ? seek(get(trimStartTime)) : seekByFrame(-1); }
+    if (e.code === 'ArrowRight') { e.preventDefault(); e.shiftKey ? seek(get(trimEndTime)) : seekByFrame(1); }
     if (e.code === 'KeyK') { e.preventDefault(); addKeyframe(); }
     if (e.code === 'Delete') { e.preventDefault(); deleteSelectedKeyframe(); }
     if (e.code === 'KeyQ' || e.code === 'KeyE' || e.code === 'KeyR') { e.preventDefault(); rotateSelectedTrack(e.code); }
