@@ -40,6 +40,7 @@
   "timeline.play_pause": "재생/정지",
   "timeline.kf.add": "키 프레임 추가 (K)",
   "timeline.kf.del": "키프레임 삭제(Del)",
+  "timeline.loop.tip": "루프 재생 (L)",
   "cap.warn": "⚠ 이 브라우저는 일부 기능과 호환되지 않습니다.",
   "help.btn": "사용법",
   "help.title": "사용법",

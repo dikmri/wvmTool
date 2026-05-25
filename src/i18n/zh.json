@@ -40,6 +40,7 @@
   "timeline.play_pause": "播放/停止",
   "timeline.kf.add": "添加关键帧（K)",
   "timeline.kf.del": "删除关键帧（Del）)",
+  "timeline.loop.tip": "循环播放（L)",
   "cap.warn": "⚠ 该浏览器不支持部分功能",
   "help.btn": "如何使用",
   "help.title": "如何使用",

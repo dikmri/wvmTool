@@ -1,10 +1,10 @@
-﻿# wvmTool
+# wvmTool
 
 [日本語](../README.md) | [English](README.en.md) | [中文](README.zh.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Français](README.fr.md)
 
 ![alt text](../pics/top.png)
 
-브라우저 완결형 동영상 모자이크 편집 웹 앱입니다.
+웹 브라우저 완결형 동영상 모자이크 편집 앱입니다.
 
 ## 다음 URL에서 사용 가능
 

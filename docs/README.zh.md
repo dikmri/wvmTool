@@ -1,10 +1,10 @@
-﻿# wvmTool
+# wvmTool
 
 [日本語](../README.md) | [English](README.en.md) | [中文](README.zh.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Français](README.fr.md)
 
 ![alt text](../pics/top.png)
 
-这是一个包含浏览器的视频马赛克编辑网络应用程序。
+这是一款可以在网络浏览器中完成的视频马赛克编辑应用程序。
 
 ## 可从以下 URL 获取
 
@@ -57,7 +57,7 @@ https://dikmri.github.io/wvmTool/
 |向右箭头|前进 1 帧 |
 | Shift+← / → |移至第一帧/最后一帧 |
 |克 |在当前位置添加关键帧 |
-|删除 |删除选定的关键帧 |
+|删除|删除选定的关键帧 |
 |问 |将马赛克范围逆时针旋转5度 |
 |电子|顺时针旋转马赛克范围5° |
 |右 |重置马赛克范围旋转（0°）|
@@ -92,7 +92,7 @@ https://dikmri.github.io/wvmTool/
 
 ## 技术配置
 
-|层 |技术 |
+|层|技术 |
 |----------|------|
 |用户界面框架 | Svelte 5 + TypeScript |
 |构建工具|投票 6 |

@@ -1,10 +1,10 @@
-﻿# wvmTool
+# wvmTool
 
 [日本語](../README.md) | [English](README.en.md) | [中文](README.zh.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Français](README.fr.md)
 
 ![alt text](../pics/top.png)
 
-Esta es una aplicación web de edición de mosaicos de vídeo contenida en un navegador.
+Esta es una aplicación de edición de mosaicos de video que se puede completar en un navegador web.
 
 ## Disponible en la siguiente URL
 

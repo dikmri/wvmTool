@@ -40,6 +40,7 @@
   "timeline.play_pause": "Reproducir/Detener",
   "timeline.kf.add": "Agregar fotograma clave (K)",
   "timeline.kf.del": "Eliminar fotograma clave (Del))",
+  "timeline.loop.tip": "Reproducción en bucle (L)",
   "cap.warn": "⚠ Este navegador no soporta algunas funciones",
   "help.btn": "como usar",
   "help.title": "como usar",

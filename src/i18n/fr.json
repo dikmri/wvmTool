@@ -40,6 +40,7 @@
   "timeline.play_pause": "Jouer/Arrêter",
   "timeline.kf.add": "Ajouter une image clé (K)",
   "timeline.kf.del": "Supprimer l'image clé (Suppr))",
+  "timeline.loop.tip": "Lecture en boucle (L)",
   "cap.warn": "⚠ Ce navigateur ne prend pas en charge certaines fonctions",
   "help.btn": "Comment utiliser",
   "help.title": "Comment utiliser",

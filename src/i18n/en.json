@@ -40,6 +40,7 @@
   "timeline.play_pause": "Play/Stop",
   "timeline.kf.add": "Add keyframe (K)",
   "timeline.kf.del": "Delete keyframe (Del))",
+  "timeline.loop.tip": "Loop playback (L)",
   "cap.warn": "⚠ This browser does not support some functions",
   "help.btn": "How to use",
   "help.title": "How to use",
