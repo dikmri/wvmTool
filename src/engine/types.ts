@@ -97,6 +97,8 @@ export type ExportWorkerMessage =
       tracks: MosaicTrack[];
       settings: ExportSettings;
       meta: VideoMeta;
+      trimStartTime: number;
+      trimEndTime: number;
     }
   | { type: 'cancel' };
 

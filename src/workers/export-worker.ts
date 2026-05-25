@@ -10,7 +10,7 @@ self.onmessage = async (e: MessageEvent<ExportWorkerMessage>) => {
   const msg = e.data;
   if (msg.type === 'cancel') { cancelled = true; return; }
   if (msg.type === 'start') {
-    await runExport(msg.videoData, msg.tracks, msg.settings, msg.meta);
+    await runExport(msg.videoData, msg.tracks, msg.settings, msg.meta, msg.trimStartTime, msg.trimEndTime);
   }
 };
 
@@ -110,6 +110,8 @@ async function runExport(
   tracks: MosaicTrack[],
   settings: ExportSettings,
   meta: VideoMeta,
+  trimStartSec: number,
+  trimEndSec: number,
 ): Promise<void> {
   cancelled = false;
 
@@ -150,6 +152,7 @@ async function runExport(
     const frameQueue: Array<{ frame: VideoFrame; timestamp: number }> = [];
     let processingActive = false;
     const pendingAudioChunks: Array<{ chunk: EncodedAudioChunk; meta?: EncodedAudioChunkMetadata }> = [];
+    let audioFirstMetaPending: EncodedAudioChunkMetadata | undefined;
 
     // onReady で確定した fps をクロージャー越しに drainFrameQueue に届ける
     let detectedFps = meta.fps ?? 30;
@@ -196,7 +199,12 @@ async function runExport(
     // ── デコーダー ────────────────────────────────────────────────────────────
     const decoder = new VideoDecoder({
       output: (frame: VideoFrame) => {
-        frameQueue.push({ frame, timestamp: frame.timestamp / 1_000_000 });
+        const ts = frame.timestamp / 1_000_000;
+        if (ts < trimStartSec || (trimEndSec > 0 && ts > trimEndSec)) {
+          frame.close();
+          return;
+        }
+        frameQueue.push({ frame, timestamp: ts });
         drainFrameQueue().catch((e) => logger.error('export-worker:drain-error', String(e)));
       },
       error: (e: Error) => logger.error('export-worker:decoder-error', String(e)),
@@ -231,6 +239,13 @@ async function runExport(
           const computed = vTrack.nb_samples / durationSec;
           if (computed > 1 && computed < 300) {
             detectedFps = Math.round(computed * 100) / 100;
+          }
+          // trim範囲に合わせて totalFrames を補正
+          const fullDuration = durationSec;
+          const effectiveEnd = trimEndSec > 0 && trimEndSec < fullDuration ? trimEndSec : fullDuration;
+          const effectiveStart = trimStartSec > 0 ? trimStartSec : 0;
+          if (effectiveEnd > effectiveStart) {
+            totalFrames = Math.max(1, Math.round((effectiveEnd - effectiveStart) * detectedFps));
           }
         }
         // ── ターゲットビットレートを元動画から計算 ────────────────────────────
@@ -341,9 +356,21 @@ async function runExport(
         // ── 音声パススルー ────────────────────────────────────────────────────
         if (id === audioTrackId) {
           const firstMeta = (mp4file as unknown as { _audioFirstMeta?: EncodedAudioChunkMetadata })._audioFirstMeta;
-          samples.forEach((sample, i) => {
-            // mp4box の sample.cts は PTS そのもの（video と同様）
+          if (firstMeta && !audioFirstMetaPending) audioFirstMetaPending = firstMeta;
+          (mp4file as unknown as { _audioFirstMeta?: unknown })._audioFirstMeta = undefined;
+
+          samples.forEach((sample) => {
             const pts = sample.cts ?? sample.dts;
+            const timeSec = pts / sample.timescale;
+            // trim範囲外の音声をスキップ
+            if (timeSec < trimStartSec) return;
+            if (trimEndSec > 0 && timeSec > trimEndSec) return;
+
+            let chunkMeta: EncodedAudioChunkMetadata | undefined;
+            if (audioFirstMetaPending) {
+              chunkMeta = audioFirstMetaPending;
+              audioFirstMetaPending = undefined;
+            }
             pendingAudioChunks.push({
               chunk: new EncodedAudioChunk({
                 type: 'key',
@@ -351,10 +378,9 @@ async function runExport(
                 duration: (sample.duration / sample.timescale) * 1_000_000,
                 data: sample.data,
               }),
-              meta: i === 0 && firstMeta ? firstMeta : undefined,
+              meta: chunkMeta,
             });
           });
-          (mp4file as unknown as { _audioFirstMeta?: unknown })._audioFirstMeta = undefined;
           return;
         }
 

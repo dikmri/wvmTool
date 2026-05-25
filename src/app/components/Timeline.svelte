@@ -1,6 +1,6 @@
 <script lang="ts">
   import { get } from 'svelte/store';
-  import { currentTime, duration, fps, isPlaying, totalFrames, currentFrame, videoElement } from '../stores/playback-store';
+  import { currentTime, duration, fps, isPlaying, totalFrames, currentFrame, videoElement, trimStartTime, trimEndTime } from '../stores/playback-store';
   import { tracksStore, projectStore } from '../stores/project-store';
   import { selectedTrackId, selectedKeyframeId, drawingMode } from '../stores/ui-store';
   import { interpolateKeyframes } from '../../engine/keyframe-interpolator';
@@ -13,15 +13,29 @@
   $: selTrackId = $selectedTrackId;
   $: cfr = $currentFrame;
   $: totalFr = $totalFrames;
+  $: trimStart = $trimStartTime;
+  $: trimEnd = $trimEndTime;
 
   let timelineEl: HTMLDivElement;
   let isDraggingScrubber = false;
+  let isDraggingTrimStart = false;
+  let isDraggingTrimEnd = false;
 
   function seek(time: number) {
     const vid = get(videoElement);
     if (!vid) return;
     vid.currentTime = Math.max(0, Math.min(time, get(duration)));
     currentTime.set(vid.currentTime);
+  }
+
+  function onTrimStartMouseDown(e: MouseEvent) {
+    isDraggingTrimStart = true;
+    e.stopPropagation();
+  }
+
+  function onTrimEndMouseDown(e: MouseEvent) {
+    isDraggingTrimEnd = true;
+    e.stopPropagation();
   }
 
   function seekByFrame(delta: number) {
@@ -35,6 +49,10 @@
     if (get(isPlaying)) {
       vid.pause();
     } else {
+      // trim終端にいる場合は先頭から再生
+      if (vid.currentTime >= get(trimEndTime)) {
+        vid.currentTime = get(trimStartTime);
+      }
       vid.play();
     }
   }
@@ -79,14 +97,27 @@
   }
 
   function onWindowMouseMove(e: MouseEvent) {
-    if (!isDraggingScrubber || !timelineEl || get(duration) === 0) return;
+    if (!timelineEl || get(duration) === 0) return;
     const rect = timelineEl.getBoundingClientRect();
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    seek(ratio * get(duration));
+    const time = ratio * get(duration);
+
+    if (isDraggingTrimStart) {
+      trimStartTime.set(Math.min(time, get(trimEndTime) - 1 / get(fps)));
+      return;
+    }
+    if (isDraggingTrimEnd) {
+      trimEndTime.set(Math.max(time, get(trimStartTime) + 1 / get(fps)));
+      return;
+    }
+    if (!isDraggingScrubber) return;
+    seek(time);
   }
 
   function onWindowMouseUp() {
     isDraggingScrubber = false;
+    isDraggingTrimStart = false;
+    isDraggingTrimEnd = false;
   }
 
   function addNewTrack() {
@@ -179,6 +210,10 @@
     aria-valuenow={ct}
     tabindex="0"
   >
+    <!-- trim範囲外シャドウ -->
+    <div class="trim-shadow trim-shadow-left" style="width:{dur > 0 ? (trimStart / dur) * 100 : 0}%"></div>
+    <div class="trim-shadow trim-shadow-right" style="left:{dur > 0 ? (trimEnd / dur) * 100 : 100}%"></div>
+
     {#each tracks as track}
       {#if track.enabled}
         {#each track.keyframes as kf}
@@ -212,6 +247,34 @@
     ></div>
 
     <div class="progress-bar" style="width:{dur > 0 ? (ct / dur) * 100 : 0}%"></div>
+
+    <!-- trimハンドル（◯） -->
+    {#if dur > 0}
+      <div
+        class="trim-handle trim-handle-start"
+        style="left:{(trimStart / dur) * 100}%"
+        title="{formatTime(trimStart)}"
+        on:mousedown={onTrimStartMouseDown}
+        role="slider"
+        aria-label="trim start"
+        aria-valuenow={trimStart}
+        aria-valuemin={0}
+        aria-valuemax={trimEnd}
+        tabindex="0"
+      ></div>
+      <div
+        class="trim-handle trim-handle-end"
+        style="left:{(trimEnd / dur) * 100}%"
+        title="{formatTime(trimEnd)}"
+        on:mousedown={onTrimEndMouseDown}
+        role="slider"
+        aria-label="trim end"
+        aria-valuenow={trimEnd}
+        aria-valuemin={trimStart}
+        aria-valuemax={dur}
+        tabindex="0"
+      ></div>
+    {/if}
   </div>
 </div>
 
@@ -326,4 +389,43 @@
     background: #00ff88;
     box-shadow: 0 0 4px #00ff88;
   }
+
+  .trim-shadow {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.55);
+    pointer-events: none;
+    z-index: 3;
+  }
+
+  .trim-shadow-left { left: 0; }
+  .trim-shadow-right { right: 0; }
+
+  .trim-handle {
+    position: absolute;
+    top: -5px;
+    height: calc(100% + 10px);
+    width: 3px;
+    background: #888;
+    transform: translateX(-50%);
+    cursor: ew-resize;
+    z-index: 20;
+  }
+
+  .trim-handle::after {
+    content: '';
+    position: absolute;
+    bottom: -7px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: #252525;
+    border: 2px solid #888;
+  }
+
+  .trim-handle:hover { background: #bbb; }
+  .trim-handle:hover::after { border-color: #bbb; }
 </style>

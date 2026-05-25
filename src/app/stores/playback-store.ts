@@ -5,6 +5,9 @@ export const isPlaying = writable<boolean>(false);
 export const duration = writable<number>(0);
 export const fps = writable<number>(30);
 
+export const trimStartTime = writable<number>(0);
+export const trimEndTime = writable<number>(0);
+
 // Shared reference to the active <video> element. Set by VideoViewport after load.
 export const videoElement = writable<HTMLVideoElement | null>(null);
 

@@ -2,6 +2,7 @@
   import { get } from 'svelte/store';
   import { projectStore, exportSettingsStore, tracksStore, videoMetaStore } from '../stores/project-store';
   import { exportStatus, exportProgress, exportError } from '../stores/ui-store';
+  import { trimStartTime, trimEndTime } from '../stores/playback-store';
   import { downloadBlob, getOutputFileName } from '../../utils/file';
   import { logger } from '../../utils/logger';
   import { t } from '../../i18n';
@@ -58,6 +59,8 @@
         tracks: get(tracksStore),
         settings: get(exportSettingsStore),
         meta,
+        trimStartTime: get(trimStartTime),
+        trimEndTime: get(trimEndTime),
       },
       [arrayBuffer],
     );
