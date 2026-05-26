@@ -21,10 +21,8 @@ export function interpolateKeyframes(
     return v;
   }
 
-  if (time <= sorted[0].time) {
-    const kf = sorted[0];
-    return { x: kf.x, y: kf.y, width: kf.width, height: kf.height, rotation: kf.rotation ?? 0, visible: kf.visible ?? true };
-  }
+  // 最初のキーフレームより前はモザイクなし（逆方向への延伸をしない）
+  if (time < sorted[0].time) return null;
 
   if (time >= sorted[sorted.length - 1].time) {
     const kf = sorted[sorted.length - 1];
